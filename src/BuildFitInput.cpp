@@ -43,9 +43,10 @@ void BuildFitInput::LoadBkg_KeyValue( std::string key, stringlist bkglist, doubl
 	}
 }
 void BuildFitInput::LoadData_KeyValue( std::string key, stringlist datalist){
-	for( unsigned int i=0; i< datalist.size(); i++){
+/*	for( unsigned int i=0; i< datalist.size(); i++){
 		//std::string subkey = key+"_"+std::to_string(i);
 		ROOT::RDataFrame df("kuSkimTree", datalist[i]);
+		std::cout<<"load data keyvalue key:"<<key<<"\n";
 		_base_rdf_DataDict[key] = std::make_unique<RNode>(df);
 
 		//for now just look at raw number of events for data
@@ -56,7 +57,13 @@ void BuildFitInput::LoadData_KeyValue( std::string key, stringlist datalist){
 		auto tempdf = df.Define("evtwt", std::to_string(wt));
 		//cast to RNode with uniqueptr
 		rdf_DataDict[key] = std::make_unique<RNode>(tempdf);
-	}
+	}*/
+	ROOT::RDataFrame df("kuSkimTree", datalist);
+	_base_rdf_DataDict[key] = std::make_unique<RNode>(df);
+	double wt{};
+        wt = 1.0;
+	auto tempdf = df.Define("evtwt", std::to_string(wt));
+	rdf_DataDict[key] = std::make_unique<RNode>(tempdf);
 }
 
 void BuildFitInput::LoadSig_KeyValue( std::string key, stringlist siglist, double Lumi){

@@ -49,7 +49,7 @@ class BuildFit{
 	void BuildMultiChannel9bin(JSONFactory* j, std::string signalPoint, std::string datacard_dir, channelmap channelMap);
 
 	std::vector<std::string> sigkeys = { "gogoZ", "gogoG", "gogoGZ", "sqsqZ", "sqsqG", "sqsqGZ" };
-	std::vector<std::string> datakeys = { "MET18", "DisplacedJet18"};
+	std::vector<std::string> datakeys = { "MET18","MET17","MET16", "DisplacedJet18"};
 	
 };
 #endif

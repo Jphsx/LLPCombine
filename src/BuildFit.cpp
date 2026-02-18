@@ -169,8 +169,8 @@ void BuildFit::BuildABCDFit(JSONFactory* j, std::string signalPoint, std::string
         std::string D = ABCDbins[3];
 
 	//set the fake proc rate in A to be multiplicative, not the observation
-        double bkgrateA = obs_rates[B]*(obs_rates[C]/obs_rates[D]);
-
+//        double bkgrateA = obs_rates[B]*(obs_rates[C]/obs_rates[D]);
+	double bkgrateA = obs_rates[B]*(obs_rates[D]/obs_rates[C]);
 	
         cb.AddObservations({"*"}, {signalDetails[0]}, {"13.6TeV"}, {signalDetails[1]}, cats);
         cb.AddProcesses(   {"*"}, {signalDetails[0]}, {"13.6TeV"}, {signalDetails[1]}, bkgprocs, cats, false);
@@ -200,15 +200,18 @@ void BuildFit::BuildABCDFit(JSONFactory* j, std::string signalPoint, std::string
 	);
      
 	//optional pin rates lognormals
-	cb.cp().bin({B}).AddSyst(cb, "lnN_"+B, "lnN", SystMap<>::init(1.001));
-	cb.cp().bin({C}).AddSyst(cb, "lnN_"+C, "lnN", SystMap<>::init(1.50));
+	cb.cp().bin({B}).AddSyst(cb, "lnN_"+B, "lnN", SystMap<>::init(1.50));
+	cb.cp().bin({C}).AddSyst(cb, "lnN_"+C, "lnN", SystMap<>::init(1.20));
 	cb.cp().bin({D}).AddSyst(cb, "lnN_"+D, "lnN", SystMap<>::init(1.50));
 
 
 	//create the A prediction bin
-	 cb.cp().bin({A}).AddSyst(cb, "scale_$BIN", "rateParam", SystMapFunc<>::init
-          ("(@0*@1/@2)", "scale_"+B +",scale_"+C+ ",scale_"+D)
-      );
+	// cb.cp().bin({A}).AddSyst(cb, "scale_$BIN", "rateParam", SystMapFunc<>::init
+        //  ("(@0*@1/@2)", "scale_"+B +",scale_"+C+ ",scale_"+D)
+    //  );
+    	cb.cp().bin({A}).AddSyst(cb, "scale_$BIN", "rateParam", SystMapFunc<>::init
+          ("(@0*@2/@1)", "scale_"+B +",scale_"+C+ ",scale_"+D)
+	);
 	cb.PrintAll();
         cb.WriteDatacard(datacard_dir+"/"+signalPoint+"/"+signalPoint+".txt");
 
@@ -274,6 +277,9 @@ void BuildFit::BuildMultiChannel9bin(JSONFactory* j, std::string signalPoint, st
             std::string c1 = "Ch1CRHad"; //hardcode anchor channel for now
 	    std::string c2 = "Ch2CRHad";
             std::string c3 = "Ch3CRLep";
+//	    std::string c1 = "Ch1NisoPho1b";//hardcode photon too
+//	    std::string c2 = "Ch2NisoPho2b";
+//	    std::string c3 = "Ch3NisoPho2b";
             size_t foundPos = x->bin().find(c2);
 	    size_t foundPos2 = x->bin().find(c3); //very bad, need better solution to be more general
             if( foundPos != std::string::npos){
@@ -318,9 +324,14 @@ void BuildFit::BuildMultiChannel9bin(JSONFactory* j, std::string signalPoint, st
             }
 	});
 	std::vector<std::string> bincoords = { "00","10","20", "01","11","21","02","12","22"};
+//	std::vector<std::string> bincoords = { "00","10","20","01","11","21"};
         std::string ch1 = "Ch1CRHad";
         std::string ch2 = "Ch2CRHad";
 	std::string ch3 = "Ch3CRHad";
+//	std::string ch1 = "Ch1NisoPho1b";//hardcode photon too
+//        std::string ch2 = "Ch2NisoPho2b";
+//       	std::string ch3 = "Ch3NisoPho2b";
+
         for(int i=0; i<bincoords.size(); i++){
                 cb.cp().bin({ch1+bincoords[i], ch2+bincoords[i]}).AddSyst(cb, "c1c2binShape"+bincoords[i], "lnN", SystMap<>::init(1.05));
 		cb.cp().bin({ch1+bincoords[i], ch3+bincoords[i]}).AddSyst(cb, "c1c3binShape"+bincoords[i], "lnN", SystMap<>::init(1.05));
@@ -331,6 +342,11 @@ void BuildFit::BuildMultiChannel9bin(JSONFactory* j, std::string signalPoint, st
 	std::vector<std::string> ch3bins = channelMap["ch3"];
         cb.cp().bin(ch2bins).AddSyst(cb, "c2lepNorm", "rateParam", SystMap<>::init(0.085));
 	cb.cp().bin(ch3bins).AddSyst(cb, "c3lepNorm", "rateParam", SystMap<>::init(0.44));
+
+
+//	cb.cp().bin(ch2bins).AddSyst(cb, "c2lepNorm", "rateParam", SystMap<>::init(0.648));
+//        cb.cp().bin(ch3bins).AddSyst(cb, "c3lepNorm", "rateParam", SystMap<>::init(0.21));
+
         cb.WriteDatacard(datacard_dir+"/"+signalPoint+"/"+signalPoint+".txt");
 
 	
