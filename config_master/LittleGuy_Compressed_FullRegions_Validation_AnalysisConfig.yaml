@@ -1,8 +1,8 @@
 # Compressed analysis prototype
 analysis:
-  name: "LittleGuy_Compressed_FullRegions_AnalysisConfig"
+  name: "LittleGuy_Compressed_FullRegions_Validation_AnalysisConfig"
   luminosity: 200.0
-  output_json: "LittleGuy_Compressed_FullRegions_AnalysisConfig.json"
+  output_json: "LittleGuy_Compressed_FullRegions_Validation_AnalysisConfig.json"
 
 samples:
   signals: ["gogoGZ"]
@@ -26,12 +26,12 @@ eq1HadSV_CR: &eq1HadSV_CR
   - "(HadronicSV_dxySig[0] < 800) && (HadronicSV_mass[0] >= 15)"
 
 geq1SV_CR: &geq1SV_CR
-  - "(((SV_nHadronic >= 1) & ROOT::VecOps::Any(HadronicSV_mass >= 15)) | ((SV_nLeptonic >= 1) & ROOT::VecOps::Any(LeptonicSV_mass >= 10)))"
-  - "!ROOT::VecOps::Any((HadronicSV_dxySig >= 800) & (HadronicSV_mass >= 15))"
-  - "!ROOT::VecOps::Any((LeptonicSV_dxySig >= 500) & (LeptonicSV_mass >= 10))"
+  - "(((SV_nHadronic >= 1) & ROOT::VecOps::Any((HadronicSV_dxySig < 200) & (HadronicSV_mass >= 15))) | ((SV_nLeptonic >= 1) & ROOT::VecOps::Any((LeptonicSV_dxySig < 100) & (LeptonicSV_mass >= 10))))"
+  - "!ROOT::VecOps::Any((HadronicSV_dxySig >= 200) & (HadronicSV_dxySig < 800) & (HadronicSV_mass >= 15))"
+  - "!ROOT::VecOps::Any((LeptonicSV_dxySig >= 100) & (LeptonicSV_dxySig < 500) & (LeptonicSV_mass >= 10))"
 
 geq1SV_SR: &geq1SV_SR
-  - "(((SV_nHadronic >= 1) & ROOT::VecOps::Any((HadronicSV_dxySig >= 800) & (HadronicSV_mass >= 15))) | ((SV_nLeptonic >= 1) & ROOT::VecOps::Any((LeptonicSV_dxySig >= 500) & (LeptonicSV_mass >= 10))))"
+  - "(((SV_nHadronic >= 1) & ROOT::VecOps::Any((HadronicSV_dxySig >= 200) & (HadronicSV_dxySig < 800) & (HadronicSV_mass >= 15))) | ((SV_nLeptonic >= 1) & ROOT::VecOps::Any((LeptonicSV_dxySig >= 100) & (LeptonicSV_dxySig < 500) & (LeptonicSV_mass >= 10))))"
 
 ##############################################################################
 # Photon selections
@@ -50,12 +50,12 @@ noSV: &noSV
 geq1PhoBHEarly: &geq1PhoBHEarly
   - "(nBaseLinePhotons > 0)"
   # >= 1 BH photon early
-  - "((nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] >= 0.917252 && baseLinePhoton_WTimeSig[0] < -2.5) || ( nBaseLinePhotons == 2 && ((baseLinePhoton_beamHaloCNNScore[0] >= 0.917252 && baseLinePhoton_WTimeSig[0] < -2.5) || (baseLinePhoton_beamHaloCNNScore[1] >= 0.917252 && baseLinePhoton_WTimeSig[1] < -2.5)) ) )"
+  - "( (nBaseLinePhotons == 1 && (baseLinePhoton_beamHaloCNNScore[0] >= 0.99 && baseLinePhoton_beamHaloCNNScore[0] < 0.9999) && baseLinePhoton_WTimeSig[0] < -2.5) || ( nBaseLinePhotons == 2 && (((baseLinePhoton_beamHaloCNNScore[0] >= 0.99 && baseLinePhoton_beamHaloCNNScore[0] < 0.9999 ) && baseLinePhoton_WTimeSig[0] < -2.5) || ((baseLinePhoton_beamHaloCNNScore[1] >= 0.99 &&  baseLinePhoton_beamHaloCNNScore[1] < 0.9999) && baseLinePhoton_WTimeSig[1] < -2.5)) ) )"		
 
 geq1PhoBHLate: &geq1PhoBHLate
   - "(nBaseLinePhotons > 0)"
   # >= 1 BH photon late
-  - "(nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] >= 0.917252 && baseLinePhoton_WTimeSig[0] >= 2.5) || ( nBaseLinePhotons == 2 && ((baseLinePhoton_beamHaloCNNScore[0] >= 0.917252 && baseLinePhoton_WTimeSig[0] >= 2.5) || (baseLinePhoton_beamHaloCNNScore[1] >= 0.917252 && baseLinePhoton_WTimeSig[1] >= 2.5)) )"
+  - "(nBaseLinePhotons == 1 && (baseLinePhoton_beamHaloCNNScore[0] >= 0.99 && baseLinePhoton_beamHaloCNNScore[0] < 0.9999) && baseLinePhoton_WTimeSig[0] >= 2.5) || ( nBaseLinePhotons == 2 && (((baseLinePhoton_beamHaloCNNScore[0] >= 0.99 && baseLinePhoton_beamHaloCNNScore[0] < 0.9999) && baseLinePhoton_WTimeSig[0] >= 2.5) || ((baseLinePhoton_beamHaloCNNScore[1] >= 0.99 &&  baseLinePhoton_beamHaloCNNScore[1] < 0.9999) && baseLinePhoton_WTimeSig[1] >= 2.5)) )"
 
 # ==0 BH photons
 # >= 1 notBH photons
@@ -63,48 +63,33 @@ geq1PhoBHLate: &geq1PhoBHLate
 geq1PhoNotBHEarly: &geq1PhoNotBHEarly
   - "(nBaseLinePhotons > 0)"
   # == 0 BH photons
-  - "(( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252) || (nBaseLinePhotons == 2 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252 && baseLinePhoton_beamHaloCNNScore[1] < 0.917252) ) )"
+  - "(( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] < 0.99) || (nBaseLinePhotons == 2 && baseLinePhoton_beamHaloCNNScore[0] < 0.99 && baseLinePhoton_beamHaloCNNScore[1] < 0.99) ) )"
   # >=1 notBH photons early
-  - "( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] < 0.185 && baseLinePhoton_WTimeSig[0] < -2.5) || ( nBaseLinePhotons == 2 && ((baseLinePhoton_beamHaloCNNScore[0] < 0.185 && baseLinePhoton_WTimeSig[0] < -2.5) || (baseLinePhoton_beamHaloCNNScore[1] < 0.185 && baseLinePhoton_WTimeSig[1] < -2.5)) ) )"
-
+  - "( (nBaseLinePhotons == 1 && (baseLinePhoton_beamHaloCNNScore[0] < 0.99 && baseLinePhoton_beamHaloCNNScore[0] >= 0.917252) && baseLinePhoton_WTimeSig[0] < -2.5) || ( nBaseLinePhotons == 2 && (((baseLinePhoton_beamHaloCNNScore[0] < 0.99 && baseLinePhoton_beamHaloCNNScore[0] >= 0.917252) && baseLinePhoton_WTimeSig[0] < -2.5) || ((baseLinePhoton_beamHaloCNNScore[1] < 0.99 && baseLinePhoton_beamHaloCNNScore[1] >= 0.917252) && baseLinePhoton_WTimeSig[1] < -2.5)) ) )"
+ 
 geq1PhoNotBHLate: &geq1PhoNotBHLate
   - "(nBaseLinePhotons > 0)"
   # == 0 BH photons
-  - "(( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252) || (nBaseLinePhotons == 2 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252 && baseLinePhoton_beamHaloCNNScore[1] < 0.917252) ) )"
+  - "(( (nBaseLinePhotons == 1 && (baseLinePhoton_beamHaloCNNScore[0] < 0.99)) || (nBaseLinePhotons == 2 && (baseLinePhoton_beamHaloCNNScore[0] < 0.99) && (baseLinePhoton_beamHaloCNNScore[1] < 0.99)) ) )"
   # >=1 notBH photons late
-  - "( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] < 0.185 && baseLinePhoton_WTimeSig[0] >= 2.5) || ( nBaseLinePhotons == 2 && ((baseLinePhoton_beamHaloCNNScore[0] < 0.185 && baseLinePhoton_WTimeSig[0] >= 2.5) || (baseLinePhoton_beamHaloCNNScore[1] < 0.185 && baseLinePhoton_WTimeSig[1] >= 2.5)) ) )"
-
+  - "( (nBaseLinePhotons == 1 && (baseLinePhoton_beamHaloCNNScore[0] < 0.99 && baseLinePhoton_beamHaloCNNScore[0] >= 0.917252) && baseLinePhoton_WTimeSig[0] >= 2.5) || ( nBaseLinePhotons == 2 && (((baseLinePhoton_beamHaloCNNScore[0] < 0.99 && baseLinePhoton_beamHaloCNNScore[0] >= 0.917252) && baseLinePhoton_WTimeSig[0] >= 2.5) || ((baseLinePhoton_beamHaloCNNScore[1] < 0.99 && baseLinePhoton_beamHaloCNNScore[1] >= 0.917252) && baseLinePhoton_WTimeSig[1] >= 2.5)) ) )"
+ 
 noBHPhotons: &noBHPhotons
   - "(( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252) || (nBaseLinePhotons == 2 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252 && baseLinePhoton_beamHaloCNNScore[1] < 0.917252) ) )"
 
 noNonPromptPhotons: &noNonPromptPhotons
   - "( (nBaseLinePhotons == 1 && (baseLinePhoton_WTimeSig[0] < 2.5 && baseLinePhoton_WTimeSig[0] > -2.5)) || (nBaseLinePhotons == 2 && ( baseLinePhoton_WTimeSig[0] < 2.5 && baseLinePhoton_WTimeSig[0] > -2.5) && ( baseLinePhoton_WTimeSig[1] < 2.5 && baseLinePhoton_WTimeSig[1] > -2.5)) )"
 
-# ABCD veto definitions
-vetoGeq1PhoBHEarly: &vetoGeq1PhoBHEarly
-  - "!((nBaseLinePhotons > 0) && ROOT::VecOps::Any((baseLinePhoton_beamHaloCNNScore >= 0.917252) && (baseLinePhoton_WTimeSig < -2.5)))"
-
-vetoGeq1PhoBHLate: &vetoGeq1PhoBHLate
-  - "!(nBaseLinePhotons > 0 && ROOT::VecOps::Any((baseLinePhoton_beamHaloCNNScore >= 0.917252) && (baseLinePhoton_WTimeSig >= 2.5)))"
-
-vetoGeq1PhoNotBHEarly: &vetoGeq1PhoNotBHEarly
-  - "!(nBaseLinePhotons > 0 && ROOT::VecOps::Any((baseLinePhoton_beamHaloCNNScore < 0.185) && (baseLinePhoton_WTimeSig < -2.5)))"
-
-vetoGeq1PhoNotBHLate: &vetoGeq1PhoNotBHLate
-  - "!(nBaseLinePhotons > 0 && ROOT::VecOps::Any((baseLinePhoton_beamHaloCNNScore < 0.185) && (baseLinePhoton_WTimeSig > 2.5)))"
-
-vetoPromptPho: &vetoPromptPho
-  - "!(nBaseLinePhotons > 0 && ROOT::VecOps::Any(abs(baseLinePhoton_WTimeSig) < 2.5))"
-
 # Prompt Photon Regions
 eq2Pho: &eq2Pho
   - "(nBaseLinePhotons == 2)"
   
 phoSR_eq2prompt: &phoSR_eq2prompt
-  - "((nBaseLinePhotons == 2) && ROOT::VecOps::Any(baseLinePhoton_isoANNScore >= 0.96))"
+  - "(nBaseLinePhotons == 2)"
+  - "((baseLinePhoton_isoANNScore[0] >= 0.80 || baseLinePhoton_isoANNScore[1] >= 0.80) && baseLinePhoton_isoANNScore[0] < 0.96 && baseLinePhoton_isoANNScore[1] < 0.96)"
 
 phoCR_eq2prompt: &phoCR_eq2prompt
-  - "((nBaseLinePhotons == 2) && !ROOT::VecOps::Any(baseLinePhoton_isoANNScore >= 0.96))"
+  - "((nBaseLinePhotons == 2) && ROOT::VecOps::All(baseLinePhoton_isoANNScore < 0.8))"
 
 ##############################################################################
 # Kinematic cuts (per channel group)
@@ -237,10 +222,6 @@ bins:
       - *b00
       - *geq1SV_CR
       - *noPho
-      - *vetoGeq1PhoBHEarly
-      - *vetoGeq1PhoBHLate
-      - *vetoGeq1PhoNotBHEarly
-      - *vetoGeq1PhoNotBHLate
 
   SVonly_AnchorCR10:
     cuts:
@@ -250,10 +231,6 @@ bins:
       - *b10
       - *geq1SV_CR
       - *noPho
-      - *vetoGeq1PhoBHEarly
-      - *vetoGeq1PhoBHLate
-      - *vetoGeq1PhoNotBHEarly
-      - *vetoGeq1PhoNotBHLate
 
   SVonly_AnchorCR20:
     cuts:
@@ -263,10 +240,6 @@ bins:
       - *b20
       - *geq1SV_CR
       - *noPho
-      - *vetoGeq1PhoBHEarly
-      - *vetoGeq1PhoBHLate
-      - *vetoGeq1PhoNotBHEarly
-      - *vetoGeq1PhoNotBHLate
 
   SVonly_CR00:
     cuts:
@@ -276,10 +249,6 @@ bins:
       - *b00
       - *geq1SV_SR
       - *noPho
-      - *vetoGeq1PhoBHEarly
-      - *vetoGeq1PhoBHLate
-      - *vetoGeq1PhoNotBHEarly
-      - *vetoGeq1PhoNotBHLate
 
   SVonly_SR10:
     cuts:
@@ -289,10 +258,6 @@ bins:
       - *b10
       - *geq1SV_SR
       - *noPho
-      - *vetoGeq1PhoBHEarly
-      - *vetoGeq1PhoBHLate
-      - *vetoGeq1PhoNotBHEarly
-      - *vetoGeq1PhoNotBHLate
 
   SVonly_SR20:
     cuts:
@@ -302,10 +267,6 @@ bins:
       - *b20
       - *geq1SV_SR
       - *noPho
-      - *vetoGeq1PhoBHEarly
-      - *vetoGeq1PhoBHLate
-      - *vetoGeq1PhoNotBHEarly
-      - *vetoGeq1PhoNotBHLate
 
   # ── Ch 3: Inclusive SV + Any Photon Non-Delayed —
   MixPrompt_AnchorCR00:
