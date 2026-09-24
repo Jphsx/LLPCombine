@@ -100,7 +100,20 @@ class BuildFit{
 		void AddTemplateProcessABCD(string src_ch, string target_ch, double tf = -999, string proc = "");
 
 		std::vector<std::string> sigkeys = { "gogoZ", "gogoG", "gogoGZ", "sqsqZ", "sqsqG", "sqsqGZ" };
-		std::vector<std::string> datakeys = { "MET18", "DisplacedJet18", "data", "MET23"};
+		//aggregate data key (BFI sums every data era in a bin into it); the only key used as data-driven bkg
+		std::vector<std::string> datakeys = { "data" };
+		//per-era data keys (MET16, MET23, ...) that BFI writes next to the aggregate; never a bkg process
+		std::vector<std::string> dataeraprefixes = { "MET", "JetMET", "DisplacedJet" };
+		bool IsDataKey(const std::string& key) const{
+			for(const auto& k : datakeys)
+				if(key == k) return true;
+			return false;
+		}
+		bool IsDataEraKey(const std::string& key) const{
+			for(const auto& p : dataeraprefixes)
+				if(key.compare(0, p.size(), p) == 0) return true;
+			return false;
+		}
 
 		string GetFitName(){ return _fitname; }
 
