@@ -1,0 +1,301 @@
+# Fit config for Compressed_FullRegions_2RISRBins_AnalysisConfig
+#
+# Ch 1 (SVonly):      shape_transfer  — anchor SVonly_AnchorCR predicts SVonly_SR
+# Ch 2 (DelPho):      ABCD_fit        — 4-cell timing x BH-score, 2-bin RISR [0.6, 0.75) and >= 0.75
+# Ch 3 (Eq2Pho):      shape_transfer  — Eq2Pho_MedIsoCR predicts Eq2Pho_TightIsoSR
+# Ch 4 (MixDel):      ABCD_fit        — 4-cell timing x BH-score + incl. SV dxySig, 2-bin RISR [0.6, 0.75) and >= 0.75
+# Ch 5 (MixPrompt):   shape_transfer  — MixPrompt_CR predicts MixPromptSV_SR
+#
+# ABCD grid convention (Ch 2 and Ch 4):
+#   notBH    D (early) | A (late) = SR
+#            -------------------------
+#   BH       C (early) | B (late)
+#   such that A = B*C/D
+
+fitname: "LittleGuy_Compressed_FullRegions_doubleCorrectABCD"
+asimov: True
+datadriven: True
+
+# ── Shape transfer: Ch 1, Ch 3, Ch 5 ────────────────────────────────────────
+
+shape_transfer_fit:
+  bin_association:
+    Ch1CRMixDel:
+      - "Ch1CRMixDel00" 
+      - "Ch1CRMixDel10" 
+      - "Ch1CRMixDel20" 
+    Ch2SRMixDel:
+      - "Ch2CRMixDel00" 
+      - "Ch2SRMixDel10" 
+      - "Ch2SRMixDel20" 
+    # Ch 1 — anchor CR
+    Ch3CRSVonly:
+      - "Ch3CRSVonly00"
+      - "Ch3CRSVonly10"
+      - "Ch3CRSVonly20"
+    # Ch 1 — SR (CR00 is the buoy anchor bin)
+    Ch4SRSVonly:
+      - "Ch4CRSVonly00"
+      - "Ch4SRSVonly10"
+      - "Ch4SRSVonly20"
+
+    # Ch 3 — CR (medium iso)
+    Ch9CREq2PhoMedIsoPrompt:
+      - "Ch9CREq2PhoMedIsoPrompt00"
+      - "Ch9CREq2PhoMedIsoPrompt10"
+      - "Ch9CREq2PhoMedIsoPrompt20"
+    # Ch 3 — SR (CR00 is the buoy anchor bin)
+    Ch10SREq2PhoTightIsoPrompt:
+      - "Ch10CREq2PhoTightIsoPrompt00"
+      - "Ch10SREq2PhoTightIsoPrompt10"
+      - "Ch10SREq2PhoTightIsoPrompt20"
+
+    # Ch 5 — CR
+    Ch11CRMixPrompt:
+      - "Ch11CRMixPrompt00"
+      - "Ch11CRMixPrompt10"
+      - "Ch11CRMixPrompt20"
+    # Ch 5 — SR (CR00 is the buoy anchor bin)
+    Ch12SRMixPrompt:
+      - "Ch12CRMixPrompt00"
+      - "Ch12SRMixPrompt10"
+      - "Ch12SRMixPrompt20"
+
+  channel_association:
+    Ch1CRMixDel:
+      - "Ch2SRMixDel"
+    Ch3CRSVonly:
+      - "Ch4SRSVonly"
+    Ch9CREq2PhoMedIsoPrompt:
+      - "Ch10SREq2PhoTightIsoPrompt"
+    Ch11CRMixPrompt:
+      - "Ch12SRMixPrompt"
+
+# ── ABCD: Ch 2 and Ch 4 ──────────────────────────────────────────────────────
+### need SR/CR in channel names because they need to match the bin names since thats how the CombineHarvester categories are built
+ABCD_fit:
+  bin_association:
+    # Ch 2 — delayed photon (2 RISR bins per cell)
+    Ch5CRgeq1PhoBHEarly:
+      - "Ch5CRgeq1PhoBHEarly00"
+      - "Ch5CRgeq1PhoBHEarly10"
+    Ch6CRgeq1PhoBHLate:
+      - "Ch6CRgeq1PhoBHLate00"
+      - "Ch6CRgeq1PhoBHLate10"
+    Ch7CRgeq1PhoNotBHEarly:
+      - "Ch7CRgeq1PhoNotBHEarly00"
+      - "Ch7CRgeq1PhoNotBHEarly10"
+    Ch13CRgeq1PhoMedIsoEarly:
+      - "Ch13CRgeq1PhoMedIsoEarly00"
+      - "Ch13CRgeq1PhoMedIsoEarly10"
+    Ch14CRgeq1PhoMedIsoLate:
+      - "Ch14CRgeq1PhoMedIsoLate00"
+      - "Ch14CRgeq1PhoMedIsoLate10"
+    Ch15CRgeq1PhoTightIsoEarly:
+      - "Ch15CRgeq1PhoTightIsoEarly00"
+      - "Ch15CRgeq1PhoTightIsoEarly10"
+    Ch8SRgeq1PhoNotBHLateTightIso:
+      - "Ch8SRgeq1PhoNotBHLateTightIso00"
+      - "Ch8SRgeq1PhoNotBHLateTightIso10"
+
+
+  channel_association:
+    # A = B*C/D: SR (notBH late) predicted by [BH late, notBH early, BH early]
+    Ch8SRgeq1PhoNotBHLateTightIso:
+      bkgbh:
+        - "Ch6CRgeq1PhoBHLate"
+        - "Ch7CRgeq1PhoNotBHEarly"
+        - "Ch5CRgeq1PhoBHEarly"
+      bkgprompt:
+        - "Ch14CRgeq1PhoMedIsoLate"
+        - "Ch15CRgeq1PhoTightIsoEarly"
+        - "Ch13CRgeq1PhoMedIsoEarly"
+
+# ── Systematics ──────────────────────────────────────────────────────────────
+
+systematics:
+
+  # Ch 1: per-RISR-bin shape uncertainty between anchor and SR
+  sys_SVonly_Shape00:
+    type: "lnN"
+    name: "lnN_SVonly_Shape00"
+    init_val: 1.10
+    bins:
+      - "Ch3CRSVonly00"
+      - "Ch4CRSVonly00"
+  sys_SVonly_Shape10:
+    type: "lnN"
+    name: "lnN_SVonly_Shape10"
+    init_val: 1.10
+    bins:
+      - "Ch3CRSVonly10"
+      - "Ch4SRSVonly10"
+  sys_SVonly_Shape20:
+    type: "lnN"
+    name: "lnN_SVonly_Shape20"
+    init_val: 1.10
+    bins:
+      - "Ch3CRSVonly20"
+      - "Ch4SRSVonly20"
+
+  # Ch 2: per-cell per-RISR-bin systematics for delayed photon ABCD
+  sys_DelPho_BHEarly00:
+    type: "lnN"
+    name: "lnN_DelPho_BHEarly00"
+    init_val: 1.05
+    bins:
+      - "Ch5CRgeq1PhoBHEarly00"
+  sys_DelPho_BHEarly10:
+    type: "lnN"
+    name: "lnN_DelPho_BHEarly10"
+    init_val: 1.05
+    bins:
+      - "Ch5CRgeq1PhoBHEarly10"
+  sys_DelPho_BHLate00:
+    type: "lnN"
+    name: "lnN_DelPho_BHLate00"
+    init_val: 1.10
+    bins:
+      - "Ch6CRgeq1PhoBHLate00"
+  sys_DelPho_BHLate10:
+    type: "lnN"
+    name: "lnN_DelPho_BHLate10"
+    init_val: 1.10
+    bins:
+      - "Ch6CRgeq1PhoBHLate10"
+  sys_DelPho_NotBHEarly00:
+    type: "lnN"
+    name: "lnN_DelPho_NotBHEarly00"
+    init_val: 1.05
+    bins:
+      - "Ch7CRgeq1PhoNotBHEarly00"
+  sys_DelPho_NotBHEarly10:
+    type: "lnN"
+    name: "lnN_DelPho_NotBHEarly10"
+    init_val: 1.05
+    bins:
+      - "Ch7CRgeq1PhoNotBHEarly10"
+  sys_DelPho_NotBHLate00:
+    type: "lnN"
+    name: "lnN_DelPho_NotBHLate00"
+    init_val: 1.30
+    bins:
+      - "Ch8SRgeq1PhoNotBHLateTightIso00"
+  sys_DelPho_NotBHLate10:
+    type: "lnN"
+    name: "lnN_DelPho_NotBHLate10"
+    init_val: 1.30
+    bins:
+      - "Ch8SRgeq1PhoNotBHLateTightIso10"
+  sys_DelPho_MedIsoEarly00:
+    type: "lnN"
+    name: "lnN_DelPho_MedIsoEarly00"
+    init_val: 1.05
+    bins:
+      - "Ch13CRgeq1PhoMedIsoEarly00"
+  sys_DelPho_MedIsoEarly10:
+    type: "lnN"
+    name: "lnN_DelPho_MedIsoEarly10"
+    init_val: 1.05
+    bins:
+      - "Ch13CRgeq1PhoMedIsoEarly10"
+  sys_DelPho_MedIsoLate00:
+    type: "lnN"
+    name: "lnN_DelPho_MedIsoLate00"
+    init_val: 1.05
+    bins:
+      - "Ch14CRgeq1PhoMedIsoLate00"
+  sys_DelPho_MedIsoLate10:
+    type: "lnN"
+    name: "lnN_DelPho_MedIsoLate10"
+    init_val: 1.05
+    bins:
+      - "Ch14CRgeq1PhoMedIsoLate10"
+  sys_DelPho_TightIsoEarly00:
+    type: "lnN"
+    name: "lnN_DelPho_TightIsoEarly00"
+    init_val: 1.05
+    bins:
+      - "Ch15CRgeq1PhoTightIsoEarly00"
+  sys_DelPho_TightIsoEarly10:
+    type: "lnN"
+    name: "lnN_DelPho_TightIsoEarly10"
+    init_val: 1.05
+    bins:
+      - "Ch15CRgeq1PhoTightIsoEarly10"
+
+  # Ch 3: per-RISR-bin shape uncertainty between CR and SR
+  sys_Eq2Pho_Shape00:
+    type: "lnN"
+    name: "lnN_Eq2Pho_Shape00"
+    init_val: 1.10
+    bins:
+      - "Ch9CREq2PhoMedIsoPrompt00"
+      - "Ch10CREq2PhoTightIsoPrompt00"
+  sys_Eq2Pho_Shape10:
+    type: "lnN"
+    name: "lnN_Eq2Pho_Shape10"
+    init_val: 1.10
+    bins:
+      - "Ch9CREq2PhoMedIsoPrompt10"
+      - "Ch10SREq2PhoTightIsoPrompt10"
+  sys_Eq2Pho_Shape20:
+    type: "lnN"
+    name: "lnN_Eq2Pho_Shape20"
+    init_val: 1.10
+    bins:
+      - "Ch9CREq2PhoMedIsoPrompt20"
+      - "Ch10SREq2PhoTightIsoPrompt20"
+  sys_Eq2Pho_Shape30:
+    type: "lnN"
+    name: "lnN_Eq2Pho_Shape30"
+    init_val: 1.10
+    bins:
+      - "Ch9CREq2PhoMedIsoPrompt30"
+      - "Ch10SREq2PhoTightIsoPrompt30"
+
+  # Ch 4: per-cell per-RISR-bin systematics for mixed delayed ABCD
+  sys_MixDel_Shape00:
+    type: "lnN"
+    name: "lnN_MixDel_Shape00"
+    init_val: 1.10
+    bins:
+      - "Ch1CRMixDel00"
+      - "Ch2CRMixDel00"
+  sys_MixDel_Shape10:
+    type: "lnN"
+    name: "lnN_MixDel_Shape10"
+    init_val: 1.10
+    bins:
+      - "Ch1CRMixDel10"
+      - "Ch2SRMixDel10"
+  sys_MixDel_Shape20:
+    type: "lnN"
+    name: "lnN_MixDel_Shape20"
+    init_val: 1.10
+    bins:
+      - "Ch1CRMixDel20"
+      - "Ch2SRMixDel20"
+
+  # Ch 5: per-RISR-bin shape uncertainty between CR and SR
+  sys_MixPrompt_Shape00:
+    type: "lnN"
+    name: "lnN_MixPrompt_Shape00"
+    init_val: 1.10
+    bins:
+      - "Ch11CRMixPrompt00"
+      - "Ch12CRMixPrompt00"
+  sys_MixPrompt_Shape10:
+    type: "lnN"
+    name: "lnN_MixPrompt_Shape10"
+    init_val: 1.10
+    bins:
+      - "Ch11CRMixPrompt10"
+      - "Ch12SRMixPrompt10"
+  sys_MixPrompt_Shape20:
+    type: "lnN"
+    name: "lnN_MixPrompt_Shape20"
+    init_val: 1.10
+    bins:
+      - "Ch11CRMixPrompt20"
+      - "Ch12SRMixPrompt20"

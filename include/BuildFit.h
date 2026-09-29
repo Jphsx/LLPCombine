@@ -6,6 +6,7 @@
 #include <iostream>
 #include <vector>
 #include <map>
+#include <set>
 #include <string>
 #include <yaml-cpp/yaml.h>
 #include <utility>
@@ -35,8 +36,9 @@ struct yamlSys{
                         _init_val = syst["init_val"].as<double>();
 			if(!syst["bins"])
 				_bins = {};
-			else
+			else{
                         	_bins = syst["bins"].as<vector<string>>();
+			}
 			if(!syst["procs"])
 				_procs = {"bkg"};
 			else
@@ -60,10 +62,24 @@ class BuildFit{
 		void SetObservations();
 		void SetSignalRates();
 		void BuildShapeTransferFit();
+		void BuildShapeTransferFit(const string& split);
 		void BuildABCDFitSingleBin();
 		void BuildABCDFit();
+		void BuildABCDFit(const string& split);
 		void DoSystematics();
+		void DoSystematics(const string& split);
 		void WriteDatacard(string datacard_dir, bool verbose = false);
+		double SumObs(const string& bin){
+			double obs = 0;
+                	for(auto it = _obs_rates[bin].begin(); it != _obs_rates[bin].end(); it++){
+				//skip processes that don't contribute to this bin
+				if(it->second < 1e-10)
+					continue;
+				//std::cout << "SumObs - bin " << bin << " proc " << it->first << " yield " << it->second << std::endl;	
+                        	obs += it->second;
+			}
+			return obs;
+		}
 
 		ch::Categories BuildCats(JSONFactory* j);
 		void BuildCatsSubset(std::set<string> categories, ch::Categories& retcats); //returns subset of cats from overall _cats
@@ -84,54 +100,124 @@ class BuildFit{
 		void Build9binFitData(JSONFactory* j, std::string signalPoint, std::string datacard_dir, channelmap channelMap);
 		void BuildMultiChannel9bin(JSONFactory* j, std::string signalPoint, std::string datacard_dir, channelmap channelMap);
 
+		void AddTemplateProcessABCD(string src_ch, string target_ch, double tf = -999, string proc = "");
+		void AddTemplateProcessABCD(string src_ch, string target_ch, string split, double tf = -999, string proc = "");
+
 		std::vector<std::string> sigkeys = { "gogoZ", "gogoG", "gogoGZ", "sqsqZ", "sqsqG", "sqsqGZ" };
-		std::vector<std::string> datakeys = { "MET18", "DisplacedJet18", "data", "MET23"};
+		//aggregate data key (BFI sums every data era in a bin into it); the only key used as data-driven bkg
+		std::vector<std::string> datakeys = { "data" };
+		//per-era data keys (MET16, MET23, ...) that BFI writes next to the aggregate; never a bkg process
+		std::vector<std::string> dataeraprefixes = { "MET", "JetMET", "DisplacedJet" };
+		bool IsDataKey(const std::string& key) const{
+			for(const auto& k : datakeys)
+				if(key == k) return true;
+			return false;
+		}
+		bool IsDataEraKey(const std::string& key) const{
+			for(const auto& p : dataeraprefixes)
+				if(key.compare(0, p.size(), p) == 0) return true;
+			return false;
+		}
 
 		string GetFitName(){ return _fitname; }
+
+		//get process for bin (includes binidx)
+		string getProcess(string crbin){
+			string crch = getChannel(crbin);
+			for(auto it = _abcd_ch_ass.begin(); it != _abcd_ch_ass.end(); it++){
+				string srch = it->first;
+				for(auto iit = _abcd_ch_ass[srch].begin(); iit != _abcd_ch_ass[srch].end(); iit++){
+					string proc = iit->first;
+					vector<string> crchs = _abcd_ch_ass[srch][proc];
+					if(find(crchs.begin(), crchs.end(), crch) != crchs.end())
+						return proc;
+				}
+			}
+			return _bkg_proc;
+		}
 
 	private:
 		channelmap _shape_ch_ass; //channel association for shape transfer fit
 		channelmap _shape_bin_ass; //bin associations for each channel
 		channelmap _abcd_bin_ass; //SR (key) to B, C, D (vals) for ABCD fit
-		channelmap _abcd_ch_ass; //if channels are connected between ABCD fits
+		//channelmap _abcd_ch_ass; //if channels are connected between ABCD fits
+		map<string,channelmap> _abcd_ch_ass; //maps like _abcd_ch_ass[sr_ch][proc] = {cr_bins}
 		vector<yamlSys> _systs; //extra systematics to connect channels, etc
 		ch::Categories _cats;
 		map<string, int> _invcats; 
 		bool _asimov; //sets observation to expected yields
 		bool _datadriven; //uses data as 'bkg procs'
-		std::map<std::string, float> _obs_rates;
+		bool _preserve_background_processes = false; //keeps MC backgrounds as separate Combine processes
+		bool _direct_mc_backgrounds_inserted = false;
+		//std::map<std::string, float> _obs_rates;
+		std::map<string, std::map<string, float>> _obs_rates; //map for obs_rates[bin][proc] 
 		std::vector<std::string> _bkgprocs;
 		std::vector<std::string> _signalDetails;
 		json _yields;
 		std::set<string> _bins_superset;
 		std::set<string> _bins_superset_abcd;
-		std::set<string> _bins_superset_shape;
 		string _fitname;
 		string _signalPoint;
 		map<string, string> _shape_anchor_bins;
 		string _bkg_proc = "bkg";
-
+		bool _rateparam_railguard_enabled = true;
+		double _rateparam_railguard_min = 1.0e-6;
+		double _rateparam_railguard_max = 10000.0;
+		bool _rateparam_floor_zero_init = true;
+		bool _yearsplit = false;
+		bool _runsplit = false;
 		//get total yield over all processes for a given bin
 		double getTotYield(string bin){
 			double bin_tot_yield = 0;
                         for(auto proc : _bkgprocs){
 				std::cout << "getTotYield - bin " << bin << " proc " << proc << std::endl;
-                                bin_tot_yield += _yields[bin][proc][1].get<double>();
+                                bin_tot_yield += GetYieldValueOrZero(bin, proc, 1, "getTotYield");
                         }
 			return bin_tot_yield;
 		}
 
-		string GetBuoyBin(string buoych){
-			return buoych.replace(buoych.find("SR"),2,"CR")+_shape_anchor_bins[buoych];
+		string GetBuoyBin(string buoych, string split = ""){
+			string bin = buoych.replace(buoych.find("SR"),2,"CR")+_shape_anchor_bins[buoych];
+			if(split != "")
+				return bin+"_"+split;
+			else
+				return bin;
 		}
 
 		//get bin indices - should be last two characters based on naming convention
 		string getBinIdx(string binname){
-			return binname.substr(binname.size() - 2);
+			int breakidx;
+			if(binname.find("_") != string::npos)
+				breakidx = binname.find("_");
+			else
+				breakidx = binname.size();
+			return binname.substr(breakidx - 2, 2);
+		}
+
+		string getChannel(string binname){
+			string binidx = getBinIdx(binname);
+			return binname.substr(0,binname.find(binidx));
+		}
+
+		string recombineBinSplitName(string binname, string split){
+			if(split == "")
+				return binname;
+			if(binname.find(split) != string::npos)
+				return binname;
+			return binname+"_"+split;
 		}
 
 		void sumBkgs();
-
+		void InsertDirectMCBackgroundProcesses();
+		double GetYieldValue(const string& bin, const string& proc, int index, const string& context) const;
+		double GetYieldValueOrZero(const string& bin, const string& proc, int index, const string& context) const;
+		std::vector<std::string> FitBackgroundProcesses() const;
+		std::vector<std::string> ExpandConfiguredProcesses(const std::vector<std::string>& configured) const;
+		double GuardRateParamInit(double value) const;
+		std::string ResolveRateParamName(const std::string& name, const std::string& bin, const std::string& proc) const;
+		void SetRateParamRange(const std::string& name, const std::vector<std::string>& bins, const std::vector<std::string>& procs);
+		void AddRateParam(const std::vector<std::string>& procs, const std::vector<std::string>& bins, const std::string& name, double init, string split);
+		void BuildSplitBins(const vector<string>& splits);
 		ch::Process create_proc(string mass, string analysis, string era, string channel, string proc, pair<int, string> bininfo, bool signal, double rate){
 			ch::Process newproc;
                         newproc.set_mass(mass);

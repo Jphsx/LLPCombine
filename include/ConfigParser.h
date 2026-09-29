@@ -25,16 +25,23 @@ struct AnalysisConfig {
     std::string output_json;
     std::string output_dir;
 
-	double sampleLifetime;
-	double targetLifetime;
-	double sampleZrate;
-	double sampleGrate;
-	double targetZrate;
-	double targetGrate;
+    double sampleLifetime;
+    double targetLifetime;
+    double sampleZrate;
+    double sampleGrate;
+    double targetZrate;
+    double targetGrate;
     
     std::vector<std::string> backgrounds;
     std::vector<std::string> signals;
     std::vector<std::string> data;
+
+    std::map<std::string, double> sigLumi;
+    std::string sampleSplit;    
+    std::vector<std::string> splitTypes = {"none","yearSplit","runSplit"};
+
+    bool mc_closure;
+    std::string mc_closure_background_mode;
     
     std::vector<BinConfig> bins;
     std::vector<SystematicConfig> systematics;

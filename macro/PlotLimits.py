@@ -1,4 +1,3 @@
-import ROOT as rt
 import itertools
 import math as mt
 import matplotlib.pyplot as plt
@@ -10,7 +9,7 @@ from scipy.interpolate import LinearNDInterpolator, griddata
 import mplhep as hep
 import argparse
 import json
-from limit_tools import ReadLimits, ReadLimitsBRs, gluino_xsec, br_colors
+from limit_tools import ReadLimits, ReadLimitsBRs, ReadLimitsKeyword, gluino_xsec, br_colors, GetMassFromFile, _br_colors_fallback
 
 hep.style.use("CMS")
 
@@ -224,23 +223,20 @@ def MakeN1N2plot( significance_dict, sig_label, mGo=2000, ctau=10, extra_text=""
             continue
         if mGo != key[0]:
             continue
+        entry = significance_dict[key]
+        if "exp0" not in entry:
+            print(f"Warning: skipping key={key} — missing 'exp0'")
+            continue
         x.append(key[2])#N1 on xaxis
         y.append(key[1])#N2 on yaxis
         interp_pts.append((key[2],key[1]))
         #just do median for now * xsec
-        z.append(significance_dict[key]["exp0"] * gluino_xsec[mGo] * 1000) #put in fb from pb
-    print("interp_pts",interp_pts)
-    print("interp_vals",interp_vals)
-
-    #hist_x=np.arange(min(x), max(x), 10)
-    #hist_y=np.arange(min(y), max(y), 10)
-    #pts = [pt for pt in zip(hist_x, hist_y)]
-    #weights = griddata(interp_pts, interp_vals, pts)
-    #for w_pt in zip(weights,pts):
-    #    print(w_pt)
-    ##weights = [interpolator(pt) for pt in zip(hist_x, hist_y)]
-    #test_idx = 20
-    #print("weights",weights[test_idx],"pt",hist_x[test_idx],",",hist_y[test_idx])
+        z.append(entry["exp0"] * gluino_xsec[mGo] * 1000) #put in fb from pb
+    if not x:
+        print(f"Warning: no complete entries for mGo={mGo}, ctau={ctau} — skipping N1N2 plot")
+        return
+    x=np.array(x)
+    y=np.array(y)
 
     xmax = max(x)
     xmin = min(x)
@@ -294,7 +290,7 @@ def MakeN1N2plot( significance_dict, sig_label, mGo=2000, ctau=10, extra_text=""
 
 
 
-def MakeCtauLimit( significance_dict, sig_label, mGo=2000, mN2 = 1500, mN1 = 500, extra_text="", oname = "sigs"):
+def MakeCtauLimit( significance_dict, sig_label, mGo=2000, mN2 = 1500, mN1 = 500, extra_text="", oname = "sigs", plot_min=1e-5, plot_max=1e0, xlim_min=None, xlim_max=None, lumi=200):
     sparticle_label = ""
     if("sqsq" in sig_label):
         sparticle_label = "\\tilde{q}"
@@ -311,29 +307,42 @@ def MakeCtauLimit( significance_dict, sig_label, mGo=2000, mN2 = 1500, mN1 = 500
             continue
         if mN1 != key[2]:
             continue
+        required = {"exp0", "exp+1", "exp+2", "exp-1", "exp-2"}
+        entry = significance_dict[key]
+        if not required.issubset(entry.keys()):
+            missing = required - entry.keys()
+            print(f"Warning: skipping ctau={key[3]} — missing keys {missing}")
+            continue
         x.append(key[3])#ctau on xaxis
-        #just do median for now * xsec
-        y.append(significance_dict[key]["exp0"] * gluino_xsec[mGo] * 1000)
-        y1sigup.append(significance_dict[key]["exp+1"] * gluino_xsec[mGo] * 1000)
-        y2sigup.append(significance_dict[key]["exp+2"] * gluino_xsec[mGo] * 1000)
-        y1sigdn.append(significance_dict[key]["exp-1"] * gluino_xsec[mGo] * 1000)
-        y2sigdn.append(significance_dict[key]["exp-2"] * gluino_xsec[mGo] * 1000)
-        #print("x",key[3],"med",significance_dict[key]["exp0"] * gluino_xsec[mGo], "1sigup", significance_dict[key]["exp+1"] * gluino_xsec[mGo] * 1000)
-    x=np.array(x)
-    y=np.array(y)
-    y1sigup=np.array(y1sigup)
-    y2sigup=np.array(y2sigup)
-    y1sigdn=np.array(y1sigdn)
-    y2sigdn=np.array(y2sigdn)
-    
-    xmax = max(x)
-    xmin = min(x)
+        #just do median for now * xsec (gluino_xsec in pb, convert to fb)
+        print(entry["exp0"], gluino_xsec[mGo])
+        y.append(entry["exp0"] * gluino_xsec[mGo] * 1000)
+        y1sigup.append(entry["exp+1"] * gluino_xsec[mGo] * 1000)
+        y2sigup.append(entry["exp+2"] * gluino_xsec[mGo] * 1000)
+        y1sigdn.append(entry["exp-1"] * gluino_xsec[mGo] * 1000)
+        y2sigdn.append(entry["exp-2"] * gluino_xsec[mGo] * 1000)
+    if not x:
+        print(f"Warning: skipping plot for mGo={mGo}, mN2={mN2}, mN1={mN1} — no valid ctau points")
+        return
+
+    sort_idx = np.argsort(x)
+    x=np.array(x)[sort_idx]
+    y=np.array(y)[sort_idx]
+    print(x)
+    print(y)
+    y1sigup=np.array(y1sigup)[sort_idx]
+    y2sigup=np.array(y2sigup)[sort_idx]
+    y1sigdn=np.array(y1sigdn)[sort_idx]
+    y2sigdn=np.array(y2sigdn)[sort_idx]
+
+    xmax = xlim_max if xlim_max is not None else max(x)
+    xmin = xlim_min if xlim_min is not None else min(x)
     ymax = max(max(y),max(y1sigup),max(y2sigup))
     ymin = min(min(y),min(y1sigdn),min(y2sigdn))
 
     fig, ax = plt.subplots(figsize=(10,8))
-    green = '#228b22' 
-    yellow = '#ffcc00' 
+    green = '#228b22'
+    yellow = '#ffcc00'
     ax.plot(x, y, color='k', marker='o', label = "Expected", zorder=10)
     plt.fill_between(np.asarray(x), 
                      np.asarray(y1sigup), 
@@ -341,41 +350,43 @@ def MakeCtauLimit( significance_dict, sig_label, mGo=2000, mN2 = 1500, mN1 = 500
     plt.fill_between(np.asarray(x),
                     np.asarray(y2sigup),
                     np.asarray(y2sigdn), color=yellow, label = "95% expected")
-    #plot theory line
-    x_th = np.arange(xmin, xmax, 100)
-    sig_xsecs = {}
-    if("gogo" in sig_label):
-        sig_xsecs = gluino_xsec
-    y_th = np.array([sig_xsecs[mGo]*1000 for i in x])
-    y_gmsb = np.array([sig_xsecs[mGo]*1000*6 for i in x])
-    ax.plot(x, y_th, color='b', linestyle='dashed',label="$"+sparticle_label+sparticle_label+"$ production $\\sigma_{th}$",zorder=10)
-    ax.plot(x, y_gmsb, color='r', linestyle='dashed',label="$"+sparticle_label+sparticle_label+"$ GMSB $\\sigma_{th}$",zorder=9)
-    hep.cms.label("Preliminary", data = True, lumi=200,com=13.6)
-    
+    xsec_th = gluino_xsec[mGo] * 1000
+    ax.axhline(y=xsec_th, color='blue', linestyle='--', linewidth=2, zorder=20,
+               label="$"+sparticle_label+sparticle_label+"$ production $\\sigma_{th}$")
+    ax.axhline(y=xsec_th * 6, color='red', linestyle='--', linewidth=2, zorder=20,
+               label="$"+sparticle_label+sparticle_label+"$ GMSB $\\sigma_{th}$")
+    hep.cms.label("Preliminary", data = True, lumi=lumi,com=13.6)
+
     # Style
     plt.legend(loc=1)
     plt.yscale('log')
-    plot_max = 5e2
-    plot_min = 1e-2
+    plt.xscale('log')
     plt.ylim(plot_min,plot_max)
+    plt.xlim(xmin, xmax)
     ax.set_xlabel("c#tau [cm]")
     plt.xlabel(r'$c\tau$ (cm)')
     plt.ylabel('95% CL upper limit on cross-section (fb)')
     #plt.yscale('log')
-    plot_sig_label = "$m_{"+sparticle_label+"}$ = "+str(mGo)+", $m_{\\tilde{\\chi}^0_2}$ = " + str(mN2) + ", $m_{\\tilde{\\chi}^0_1}$ = "+str(mN1)+" GeV"
+    plot_sig_label = ""
+    if("sqsq" in sig_label):
+        plot_sig_label = "$m_{\\tilde{q}}=$" + str(mGo) +" GeV"
+    elif("gogo" in sig_label):
+        plot_sig_label = "$m_{\\tilde{g}}$ = "+str(mGo)+", $m_{\\tilde{\\chi}^0_2}$ = " + str(mN2) + ", $m_{\\tilde{\\chi}^0_1}$ = "+str(mN1)
+    else:
+        plot_sig_label = "$m_{\\tilde{S}}=$" + str(mGo) +" GeV"
 
-    print("xmin",xmin)
-    dtext_start =  5e-5 
-    dtext = 3e-2
-    dtext_xoffset = 0
-    plt.text(xmin+dtext_xoffset,plot_max*dtext_start, plot_sig_label, fontsize=20)
+    plt.text(0.98, 0.04, plot_sig_label, fontsize=16, ha='right', va='bottom', transform=ax.transAxes)
     if extra_text != "":
-        plt.text(xmin+dtext_xoffset,plot_max*(dtext), extra_text, fontsize=20)
-    plotname = f"{oname}_{sig_label}_mGl-{mGo}_mN2-{mN2}_mN1-{mN1}_ctau1D.pdf"
+        plt.text(0.98, 0.10, extra_text, fontsize=16, ha='right', va='bottom', transform=ax.transAxes)
+    if sig_label not in oname:
+        oname += f"_{sig_label}"
+    if f"_mGl-{mGo}_mN2-{mN2}_mN1-{mN1}" not in oname:
+        oname += f"_mGl-{mGo}_mN2-{mN2}_mN1-{mN1}"
+    plotname = f"{oname}_ctau1D.pdf"
     print("Saving plot as",plotname)
     plt.savefig(plotname)
 
-def MakeCtauLimitMultipleBRs( br_dicts, sig_label, mGo=2000, mN2 = 1500, mN1 = 500, extra_text="", oname = "sigs"):
+def MakeCtauLimitMultipleBRs( br_dicts, sig_label, mGo=2000, mN2 = 1500, mN1 = 500, extra_text="", oname = "sigs", plot_min=1e-5, plot_max=1e0, xlim_min=None, xlim_max=None):
     sparticle_label = ""
     if("sqsq" in sig_label):
         sparticle_label = "\\tilde{q}"
@@ -383,8 +394,11 @@ def MakeCtauLimitMultipleBRs( br_dicts, sig_label, mGo=2000, mN2 = 1500, mN1 = 5
         sparticle_label = "\\tilde{g}"
     else:
         sparticle_label = "\\tilde{S}"
+
     fig, ax = plt.subplots(figsize=(10,8))
     br_idx = 0
+    global_xmin = float('inf')
+    global_xmax = float('-inf')
     for br_key, significance_dict in br_dicts.items():
         x,y,y1sigup,y2sigup,y1sigdn,y2sigdn = [],[],[],[],[],[]
         significance_dict = dict(sorted(significance_dict.items()))
@@ -395,28 +409,37 @@ def MakeCtauLimitMultipleBRs( br_dicts, sig_label, mGo=2000, mN2 = 1500, mN1 = 5
                 continue
             if mN1 != key[2]:
                 continue
+            required = {"exp0", "exp+1", "exp+2", "exp-1", "exp-2"}
+            entry = significance_dict[key]
+            if not required.issubset(entry.keys()):
+                missing = required - entry.keys()
+                print(f"Warning: skipping ctau={key[3]} (br={br_key}) — missing keys {missing}")
+                continue
             x.append(key[3])#ctau on xaxis
-            #just do median for now * xsec
-            y.append(significance_dict[key]["exp0"] * gluino_xsec[mGo] * 1000)
-            y1sigup.append(significance_dict[key]["exp+1"] * gluino_xsec[mGo] * 1000)
-            y2sigup.append(significance_dict[key]["exp+2"] * gluino_xsec[mGo] * 1000)
-            y1sigdn.append(significance_dict[key]["exp-1"] * gluino_xsec[mGo] * 1000)
-            y2sigdn.append(significance_dict[key]["exp-2"] * gluino_xsec[mGo] * 1000)
-        x=np.array(x)
-        y=np.array(y)
-        y1sigup=np.array(y1sigup)
-        y2sigup=np.array(y2sigup)
-        y1sigdn=np.array(y1sigdn)
+            #just do median for now * xsec (gluino_xsec in pb, convert to fb)
+            y.append(entry["exp0"] * gluino_xsec[mGo] * 1000)
+            y1sigup.append(entry["exp+1"] * gluino_xsec[mGo] * 1000)
+            y2sigup.append(entry["exp+2"] * gluino_xsec[mGo] * 1000)
+            y1sigdn.append(entry["exp-1"] * gluino_xsec[mGo] * 1000)
+            y2sigdn.append(entry["exp-2"] * gluino_xsec[mGo] * 1000)
+        if not x:
+            print(f"Warning: skipping br={br_key} for mGo={mGo}, mN2={mN2}, mN1={mN1} — no valid ctau points")
+            continue
+        sort_idx = np.argsort(x)
+        x=np.array(x)[sort_idx]
+        y=np.array(y)[sort_idx]
+        y1sigup=np.array(y1sigup)[sort_idx]
+        y2sigup=np.array(y2sigup)[sort_idx]
+        y1sigdn=np.array(y1sigdn)[sort_idx]
         y2sigdn=np.array(y2sigdn)
-        
-        xmax = max(x)
-        xmin = min(x)
-        ymax = max(max(y),max(y1sigup),max(y2sigup))
-        ymin = min(min(y),min(y1sigdn),min(y2sigdn))
 
-        green = '#228b22' 
+        global_xmin = min(global_xmin, min(x))
+        global_xmax = max(global_xmax, max(x))
+
+        green = '#228b22'
         yellow = '#ffcc00'
-        ax.plot(x, y, color=br_colors[br_idx], label = br_key, zorder=10)
+        color = br_colors.get(br_key, _br_colors_fallback[br_idx % len(_br_colors_fallback)])
+        ax.plot(x, y, color=color, linestyle='solid', label = br_key, zorder=10)
         br_idx += 1
         #plt.fill_between(np.asarray(x), 
         #                 np.asarray(y1sigup), 
@@ -424,24 +447,22 @@ def MakeCtauLimitMultipleBRs( br_dicts, sig_label, mGo=2000, mN2 = 1500, mN1 = 5
         #plt.fill_between(np.asarray(x),
         #                np.asarray(y2sigup),
         #                np.asarray(y2sigdn), color=yellow, label = "95% expected")
+    xsec_th = gluino_xsec[mGo] * 1000
+    ax.axhline(y=xsec_th, color='blue', linestyle='--', linewidth=2, zorder=20,
+               label=r'$\tilde{g}\tilde{g}$ production $\sigma_{th}$')
+    ax.axhline(y=xsec_th * 6, color='red', linestyle='--', linewidth=2, zorder=20,
+               label=r'$\tilde{g}\tilde{g}$ GMSB $\sigma_{th}$')
     hep.cms.label("Preliminary", data = True, lumi=lumi,com=13.6)
-    
-    #plot theory line
-    x_th = np.arange(xmin, xmax, 100)
-    sig_xsecs = {}
-    if("gogo" in sig_label):
-        sig_xsecs = gluino_xsec
-    y_th = np.array([sig_xsecs[mGo]*1000 for i in x])
-    y_gmsb = np.array([sig_xsecs[mGo]*1000*6 for i in x])
-    ax.plot(x, y_th, color='b', linestyle='dashed',label="$"+sparticle_label+sparticle_label+"$ production $\\sigma_{th}$",zorder=10)
-    ax.plot(x, y_gmsb, color='r', linestyle='dashed',label="$"+sparticle_label+sparticle_label+"$ GMSB $\\sigma_{th}$",zorder=9)
 
     # Style
     plt.legend(loc=1)
     plt.yscale('log')
-    plot_max = 5e2
-    plot_min = 5e-2
+    plt.xscale('log')
     plt.ylim(plot_min,plot_max)
+    xmin_plot = xlim_min if xlim_min is not None else (global_xmin if global_xmin != float('inf') else None)
+    xmax_plot = xlim_max if xlim_max is not None else (global_xmax if global_xmax != float('-inf') else None)
+    if xmin_plot is not None and xmax_plot is not None:
+        plt.xlim(xmin_plot, xmax_plot)
     ax.set_xlabel("c#tau [cm]")
     plt.xlabel(r'$c\tau$ (cm)')
     plt.ylabel('95% CL upper limit on cross section (fb)')
@@ -449,13 +470,14 @@ def MakeCtauLimitMultipleBRs( br_dicts, sig_label, mGo=2000, mN2 = 1500, mN1 = 5
     plot_sig_label = ""
     plot_sig_label = "$m_{"+sparticle_label+"}$ = "+str(mGo)+", $m_{\\tilde{\\chi}^0_2}$ = " + str(mN2) + ", $m_{\\tilde{\\chi}^0_1}$ = "+str(mN1)+" GeV"
 
-    dtext_start =  2e-2 
-    dtext = 3e-2
-    dtext_xoffset = 0
-    plt.text(xmin+dtext_xoffset,plot_max*dtext_start, plot_sig_label, fontsize=20)
+    plt.text(0.98, 0.04, plot_sig_label, fontsize=16, ha='right', va='bottom', transform=ax.transAxes)
     if extra_text != "":
-        plt.text(xmin+dtext_xoffset,plot_max*(dtext), extra_text, fontsize=20)
-    plotname = f"{oname}_{sig_label}_mGl-{mGo}_mN2-{mN2}_mN1-{mN1}_ctau1DMultipleBRs.pdf"
+        plt.text(0.98, 0.10, extra_text, fontsize=16, ha='right', va='bottom', transform=ax.transAxes)
+    if sig_label not in oname:
+        oname += f"_{sig_label}"
+    if f"_mGl-{mGo}_mN2-{mN2}_mN1-{mN1}" not in oname:
+        oname += f"_mGl-{mGo}_mN2-{mN2}_mN1-{mN1}"
+    plotname = f"{oname}_ctau1DMultipleBRs.pdf"
     print("Saving plot as",plotname)
     
     plt.savefig(plotname)
@@ -464,7 +486,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--input", "-i", required=True, nargs='+',help="input limit .json file")
 parser.add_argument("--lumi",help='luminosity',default='200')
 parser.add_argument("--extra", "-e", help="extra text")
-
+parser.add_argument("--mass-point", "-m", nargs=3, type=int, action='append',
+                    metavar=('mGo', 'mN2', 'mN1'),
+                    help="mass point triplet (mGluino mN2 mN1); can be given multiple times")
+parser.add_argument("--ymin", type=float, default=1e-5, help="y-axis lower limit (default: 1e-5)")
+parser.add_argument("--ymax", type=float, default=1e0,  help="y-axis upper limit (default: 1e0)")
+parser.add_argument("--xmin", type=float, default=None, help="x-axis lower limit (default: auto from data)")
+parser.add_argument("--xmax", type=float, default=None, help="x-axis upper limit (default: auto from data)")
 args = parser.parse_args()
 
 print("n jsons passed",len(args.input))
@@ -474,13 +502,18 @@ textfile = args.input[0]
 ofile = textfile[:textfile.find(".json")]
 lumi = args.lumi
 
-ctau_mass_pts = [[2300, 1300, 1000], [2500, 1200, 500]]
+default_mass_pts = [[2300, 1300, 1000], [2500, 1200, 500]]
+mass_pts = args.mass_point if args.mass_point else default_mass_pts
+
 if len(args.input) > 1:
     #only do multiBR ctau limit for now
     br_dict, sig_label = ReadLimitsBRs(args.input)
-    for ctau_mass_pt in ctau_mass_pts:
-        MakeCtauLimitMultipleBRs( br_dict, sig_label, ctau_mass_pt[0], ctau_mass_pt[1], ctau_mass_pt[2], extra_text, ofile)
-        break
+    required = {"exp0", "exp+1", "exp+2", "exp-1", "exp-2"}
+    all_ctaus = [key[3] for sig_dict in br_dict.values() for key, entry in sig_dict.items() if required.issubset(entry.keys())]
+    ctau_xmin = args.xmin if args.xmin is not None else (min(all_ctaus) if all_ctaus else None)
+    ctau_xmax = args.xmax if args.xmax is not None else (max(all_ctaus) if all_ctaus else None)
+    for mp in mass_pts:
+        MakeCtauLimitMultipleBRs( br_dict, sig_label, mp[0], mp[1], mp[2], extra_text, ofile, args.ymin, args.ymax, ctau_xmin, ctau_xmax)
     exit()
 
 significance_dict, sig_label = ReadLimits(textfile)
@@ -498,45 +531,46 @@ for key in significance_dict:
 
 
 #do 1D ctau limits
-#turn off for now to debug 2D interpolation
-#ctau_mass_pts = [[2100, 2050, 2000]]
-for limit_file in args.input:
-    for ctau_mass_pt in ctau_mass_pts:
-        if f"mGl-{ctau_mass_pt[0]}_mN2-{ctau_mass_pt[1]}_mN1-{ctau_mass_pt[2]}" not in limit_file:
-            continue
-        print("making ctau limit plot for mass pt",ctau_mass_pt)
-        MakeCtauLimit( significance_dict, sig_label, ctau_mass_pt[0], ctau_mass_pt[1], ctau_mass_pt[2], extra_text, ofile)
-    exit()
+required_keys = {"exp0", "exp+1", "exp+2", "exp-1", "exp-2"}
+valid_ctaus = [key[3] for key, entry in significance_dict.items() if required_keys.issubset(entry.keys())]
+ctau_xmin = args.xmin if args.xmin is not None else (min(valid_ctaus) if valid_ctaus else None)
+ctau_xmax = args.xmax if args.xmax is not None else (max(valid_ctaus) if valid_ctaus else None)
+for mp in mass_pts:
+    print("making ctau limit plot for mass pt", mp)
+    MakeCtauLimit( significance_dict, sig_label, mp[0], mp[1], mp[2], extra_text, ofile, args.ymin, args.ymax, ctau_xmin, ctau_xmax, lumi)
+
+#do 2D limit plots
+#TODO - wait until we have more mass points for a more fleshed out mass plane
+#turn off for now
 #MakeSN1Limit( significance_dict, sig_label, 10, extra_text, ofile)
 #MakeSN1Limit( significance_dict, sig_label, 50, extra_text, ofile)
-#exit()
 #if multiple n1 masses
-if(len(set(n1mass)) > 1 and len(set(smass)) == 1):
-    if(len(np.unique(n2mass)) == len(n2mass)): #all n2s are unique
-        print("making N1N2 plot")
-        #plot N1N2
-        MakeN1N2plot( significance_dict, sig_label, smass[0], extra_text, ofile)
-    else: #unique mass splittings
-        print("making N2N1dM plot")
-        #plot N1N2
-        MakeN2N1dMplot( significance_dict, sig_label, smass[0], extra_text, ofile)
-elif(len(set(n1mass)) == 1 and len(set(smass)) > 1):
-    print("making N2dM plot")
-    #plot n2 vs dM 
-    MakeSN2dMplot( significance_dict, sig_label, n1mass[0], extra_text, ofile)
-elif(len(set(n1mass)) == 1 and len(set(smass)) == 1):
-    print("making N1N2 plot")
-    #plot N1N2
-    MakeN1N2plot( significance_dict, sig_label, smass[0], extra_text, ofile)
-    print("making N2dM plot")
-    #plot n2 vs dM 
-    MakeSN2dMplot( significance_dict, sig_label, n1mass[0], extra_text, ofile)
-else:
-    ctaus = np.unique(ctaus)
-    smasses = np.unique(smass)
-    for smass, ctau in list(itertools.product(smasses, ctaus)):
-        print("making N1N2 plot for parent sparticle mass",smass,"and ctau",ctau,"cm")
-        #plot N1N2
-        MakeN1N2plot( significance_dict, sig_label, int(smass), int(ctau), extra_text, ofile)
+#if(len(set(n1mass)) > 1 and len(set(smass)) == 1):
+#    if(len(np.unique(n2mass)) == len(n2mass)): #all n2s are unique
+#        print("making N1N2 plot")
+#        #plot N1N2
+#        MakeN1N2plot( significance_dict, sig_label, smass[0], extra_text, ofile)
+#    else: #unique mass splittings
+#        print("making N2N1dM plot")
+#        #plot N1N2
+#        MakeN2N1dMplot( significance_dict, sig_label, smass[0], extra_text, ofile)
+#elif(len(set(n1mass)) == 1 and len(set(smass)) > 1):
+#    print("making N2dM plot")
+#    #plot n2 vs dM 
+#    MakeSN2dMplot( significance_dict, sig_label, n1mass[0], extra_text, ofile)
+#elif(len(set(n1mass)) == 1 and len(set(smass)) == 1):
+#    print("making N1N2 plot")
+#    #plot N1N2
+#    MakeN1N2plot( significance_dict, sig_label, smass[0], extra_text, ofile)
+#    print("making N2dM plot")
+#    #plot n2 vs dM 
+#    MakeSN2dMplot( significance_dict, sig_label, n1mass[0], extra_text, ofile)
+#else:
+#    ctaus = np.unique(ctaus)
+#    smasses = np.unique(smass)
+#    for smass, ctau in list(itertools.product(smasses, ctaus)):
+#        print("making N1N2 plot for parent sparticle mass",smass,"and ctau",ctau,"cm")
+#        #plot N1N2
+#        MakeN1N2plot( significance_dict, sig_label, int(smass), int(ctau), extra_text, ofile)
 
 

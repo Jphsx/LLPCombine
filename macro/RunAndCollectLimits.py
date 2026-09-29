@@ -3,6 +3,28 @@ import argparse
 import subprocess
 import ROOT
 import json
+from tools import ALL_BINS
+
+
+split_bins = {"Pho" : [], "SV" : [], "Mixed" : []}
+def ParseObjectBins(dirname):
+    files = Path(dirname).glob("*.txt")
+    cardname = [file.name for file in files][0]
+    with open(dirname+"/"+cardname,"r") as f:
+        for line in f:
+            if "shapes * " not in line:
+                continue
+            binname = line.split(" ")[2]
+            if "Pho" in binname and "SV" not in binname:
+                split_bins["Pho"].append(binname)
+            elif "Pho" in binname and "SV" in binname:
+                split_bins["Mixed"].append(binname)
+            else:
+                split_bins["SV"].append(binname)
+
+
+
+
 
 argparser = argparse.ArgumentParser()
 argparser.add_argument("-d","--directory",help="datacard directory",required=True)
@@ -12,6 +34,7 @@ argparser.add_argument("--mN2",help="run over only this N2 sparticle mass",defau
 argparser.add_argument("--mN1",help="run over only this N1 sparticle mass",default=None)
 argparser.add_argument("--ctau",help="run over only this ctau",default=None)
 argparser.add_argument("-e","--extra",help="extra output file label",default=None)
+argparser.add_argument("--mask",help='mask channels',choices=['Pho','SV','Mixed'],default=None)
 args = argparser.parse_args()
 
 cmd = "combineTool.py -M AsymptoticLimits --there --parallel 4"
@@ -19,22 +42,45 @@ dirs = Path(args.directory).iterdir()
 
 #run asymptotic limits
 for idx, d in enumerate(dirs):
-    if args.signal not in d.name:
+    dname = d.name+"/"
+    if args.signal not in dname:
         continue
-    if args.mS is not None and args.mS not in d.name:
+    if args.mS is not None and args.mS not in dname:
         continue
-    if args.mN2 is not None and args.mN2 not in d.name:
+    if args.mN2 is not None and args.mN2 not in dname:
         continue
-    if args.mN1 is not None and args.mN1 not in d.name:
+    if args.mN1 is not None and args.mN1 not in dname:
         continue
-    if args.ctau is not None and args.ctau not in d.name:
+    if args.ctau is not None and args.ctau+"/" not in dname:
         continue
     mass = d.name[d.name.find("_")+1:]
-    if Path(f"{args.directory}{d.name}/higgsCombine_{mass}.AsymptoticLimits.mH120.root").exists():
-        print(f"Skipping {d.name}/{mass}. AsymptoticLimits file already exists")
+    if args.mask is None:
+        oname = f"{args.directory}{d.name}/higgsCombine_{mass}.AsymptoticLimits.mH120.root"
+    else:
+        oname = f"{args.directory}{d.name}/higgsCombine_{mass}_mask{args.mask}.AsymptoticLimits.mH120.root"
+    if Path(oname).exists():
+        print(f"Skipping {args.directory}{d.name}. AsymptoticLimits file already exists.")
         continue
     print("Running limits for",d.name)
-    d_cmd = f"{cmd} -n _{mass} -d {args.directory}{d.name}/*.txt"
+    if args.mask is not None:
+        print("Masking",args.mask,"channels")
+        #puts the workspace in the same directory as the datacard
+        ws_cmd = f"combineTool.py -M T2W -i {args.directory}{d.name}/*.txt -o ws_with_masks.root --channel-masks"
+        if not Path(f"{args.directory}{d.name}/ws_with_masks.root").exists():
+            print("Making workspace with mask parameters")
+            subprocess.run(ws_cmd.split(" "))
+        else:
+            print(f"Skipping workspace for {args.directory}{d.name}. Already exists.")
+        #get binnames from datacard
+        ParseObjectBins(f"{args.directory}{d.name}")
+        mask_chs = split_bins[args.mask]
+        mask_params = ""
+        for ch in mask_chs:
+            mask_params += f"mask_{ch}=1,"
+        mask_params = mask_params[:-1]
+        d_cmd = f"{cmd} -n _{mass}_mask{args.mask} -d {args.directory}{d.name}/ws_with_masks.root --setParameters {mask_params}"
+    else:
+        d_cmd = f"{cmd} -n _{mass} -d {args.directory}{d.name}/*.txt"
     subprocess.run(d_cmd.split(" "))
 
 #reset iterator
@@ -51,20 +97,28 @@ if args.mN1 is not None:
     outname += f"_mN1-{args.mN1}"
 if args.ctau is not None:
     outname += f"_ctau-{args.ctau}"
+if args.mask is not None:
+    outname += f"_mask{args.mask}"
 for idx, d in enumerate(dirs):
-    if args.signal not in d.name:
+    dname = d.name+"/"
+    if args.signal not in dname:
         continue
-    if args.mS is not None and args.mS not in d.name:
+    if args.mS is not None and args.mS not in dname:
         continue
-    if args.mN2 is not None and args.mN2 not in d.name:
+    if args.mN2 is not None and args.mN2 not in dname:
         continue
-    if args.mN1 is not None and args.mN1 not in d.name:
+    if args.mN1 is not None and args.mN1 not in dname:
         continue
-    if args.ctau is not None and args.ctau not in d.name:
+    if args.ctau is not None and args.ctau+"/" not in dname:
         continue
     #assume only 1 asymptotic limit file in each directory
     print("Collecting limits for",d.name)
-    asymlimits = [item for item in Path(args.directory+"/"+d.name).glob(f"*AsymptoticLimits*.root")]
+    mass = dname[dname.find(args.signal)+len(args.signal)+1:-1]
+    if args.mask is not None:
+        limits_name = f"*mask{args.mask}*AsymptoticLimits.mH120.root"
+    else:
+        limits_name = f"*{mass}.AsymptoticLimits.mH120.root"
+    asymlimits = [item for item in Path(args.directory+"/"+d.name).glob(limits_name)]
     n_asymlimits = len(asymlimits)
     if(n_asymlimits == 0):
         continue
@@ -74,7 +128,15 @@ for idx, d in enumerate(dirs):
     json_key = d.name[d.name.find("_")+1:]
     file_name = args.directory+"/"+d.name+"/"+asymlimits[0].name
     limit_file = ROOT.TFile(file_name)
+    if limit_file.IsZombie() or limit_file.GetNkeys() == 0:
+        print(f"Warning: skipping bad/empty file {file_name}")
+        limit_file.Close()
+        continue
     tree = limit_file.Get("limit")
+    if not tree or not isinstance(tree, ROOT.TTree):
+        print(f"Warning: no 'limit' TTree found in {file_name}, skipping")
+        limit_file.Close()
+        continue
     #from HiggsAnalysis code - toys and limit_err options not implemented
     for evt in tree:
         mh = json_key#str(evt.mh)

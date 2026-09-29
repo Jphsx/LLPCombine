@@ -60,7 +60,7 @@ $(CMSSWTARGET): $(OBJS_DIR) $(CMSSWOBJS)
 	$(CXX) $(CMSSWOBJS) $(LDFLAGS) $(LIBPATH) $(LIBS) -o $@
 
 # Rule to compile C++ source files into object files
-$(OBJS_DIR)/%.o: $(SRC_DIR)/%.cpp
+$(OBJS_DIR)/%.o: $(SRC_DIR)/%.cpp $(wildcard $(INC_DIR)/*.h)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 

@@ -2,6 +2,7 @@
 #define BFI_H
 #include <ROOT/RDataFrame.hxx>
 #include <map>
+#include <set>
 #include <algorithm>
 #include <iostream>
 #include <vector>
@@ -46,7 +47,11 @@ class BuildFitInput{
 	map< std::string, double > bkg_evtwt{};
 	map< std::string, double > data_evtwt{};
 	map< std::string, double > sig_evtwt{};
-	
+
+	//signal keys whose skim has sMCType == 2 (FastSim): no HLT in the ntuples, so every
+	//Trigger_* branch is false; FilterRegions drops the trigger requirement for these
+	std::set<std::string> fastsim_sig_keys{};
+
 	//nodemap := (sig/bkg keyname, cut region keyname), resultptr
 	nodemap bkg_filtered_dataframes;//these are the analysis bins constructed from filters
 	nodemap sig_filtered_dataframes;
@@ -55,15 +60,21 @@ class BuildFitInput{
 	BuildFitInput();
 	void BuildRVBranch();//old skims dont have rv, need to build - this needs fixed upstream
 	void BuildScaledEvtWt(double Lumi);
-	void BuildReweights(const AnalysisConfig& c);
+
+	AnalysisConfig _cfg;
+	void SetAnalysisConfig(const AnalysisConfig& c){
+		_cfg = c;
+    }
+
+	void BuildReweights();
 
 
 	//load helpers
 	void LoadBkg_KeyValue( std::string key, stringlist bkglist, double Lumi );
 	void LoadData_KeyValue( std::string key, stringlist datalist);
-	void LoadSig_KeyValue( std::string key, stringlist siglist, double Lumi );
+	void LoadSig_KeyValue( std::string key, stringlist siglist, double Lumi);
 	
-	void LoadSig_byMap( map< std::string, stringlist>& SigDict, double Lumi );
+	void LoadSig_byMap( map< std::string, stringlist>& SigDict, double Lumi);
 	void LoadBkg_byMap( map< std::string, stringlist>& BkgDict, double Lumi );
 	void LoadData_byMap( map< std::string, stringlist>& DataDict);
 	
@@ -73,7 +84,10 @@ class BuildFitInput{
 	errormap ComputeStatError( countmap countResults, map< std::string, double >& evtwt ); //older method with const same evt weights
 	errormap ComputeStatError( summap sumResults);//proper way with sum of wts squared
 
-
+        std::map<std::string, std::vector<std::string>> _runyr_map = {
+                {"Run3",{"22","23","24","25"}},
+                {"Run2",{"18","17","16"}}
+        };
 	bool _unblind = false;
 	void SetUnblind(bool u){
 		_unblind = u;
@@ -97,6 +111,25 @@ class BuildFitInput{
 	void ConstructBkgBinObjects( countmap countResults, summap sumResults, errormap errorResults );
 	void AddSigToBinObjects( countmap countResults, summap sumResults, errormap errorResults, std::map<std::string, Bin*>& analysisbins);
 	void AddDataToBinObjects( countmap countResults, summap sumResults, errormap errorResults, std::map<std::string, Bin*>& analysisbins);
+	void AddCombinedDataToBinObjects( countmap countResults, summap sumResults, errormap errorResults, std::map<std::string, Bin*>& analysisbins);
+	void AddMCClosureDataToBinObjects(std::map<std::string, Bin*>& analysisbins);
 	void PrintBins(int verbosity=1);
+
+	private:
+	enum class BinSplitMode { Inclusive, Run, Year };
+	struct BinSplitInfo{
+		BinSplitMode mode = BinSplitMode::Inclusive;
+		std::string suffix{};
+		BinSplitInfo() = default;
+		BinSplitInfo(BinSplitMode m, const std::string& s) : mode(m), suffix(s) {}
+	};
+
+	bool IsKnownYearToken(const std::string& token) const;
+	BinSplitInfo ResolveBinSplit(const std::string& binname) const;
+	std::string DataYearToken(const std::string& procname) const;
+	std::string SignalYearToken(const std::string& procname) const;
+	std::string StripSignalYearToken(const std::string& procname, const std::string& proc_year) const;
+	bool ShouldAddProcessToBin(const BinSplitInfo& split, const std::string& proc_year) const;
+	void AddOrMergeProcess(std::map<std::string, Process*>& processes, Process* proc) const;
 };
 #endif

@@ -1,8 +1,158 @@
 #include "BuildFit.h"
+#include <cmath>
 #include <iostream>
 #include <filesystem>
 using std::cout;
 using std::endl;
+
+double BuildFit::GetYieldValue(const string& bin, const string& proc, int index, const string& context) const{
+	if(!_yields.is_object()){
+		throw std::runtime_error("BF JSON error in " + context + ": top-level JSON is " + string(_yields.type_name()) + ", expected object keyed by bin");
+	}
+	if(!_yields.contains(bin)){
+		throw std::runtime_error("BF JSON error in " + context + ": missing bin '" + bin + "'");
+	}
+	const json& bin_json = _yields.at(bin);
+	if(!bin_json.is_object()){
+		throw std::runtime_error("BF JSON error in " + context + ": bin '" + bin + "' is " + string(bin_json.type_name()) + ", expected object keyed by process");
+	}
+	if(!bin_json.contains(proc)){
+		throw std::runtime_error("BF JSON error in " + context + ": missing process '" + proc + "' in bin '" + bin + "'");
+	}
+	const json& proc_json = bin_json.at(proc);
+	if(!proc_json.is_array()){
+		throw std::runtime_error("BF JSON error in " + context + ": bin '" + bin + "', process '" + proc + "' is " + string(proc_json.type_name()) + ", expected [unweighted, weighted, staterr]");
+	}
+	if(index < 0 || index >= static_cast<int>(proc_json.size())){
+		std::ostringstream msg;
+		msg << "BF JSON error in " << context << ": bin '" << bin << "', process '" << proc << "' has "
+		    << proc_json.size() << " yield entries, cannot read index " << index;
+		throw std::runtime_error(msg.str());
+	}
+	const json& value = proc_json.at(index);
+	if(!value.is_number()){
+		std::ostringstream msg;
+		msg << "BF JSON error in " << context << ": bin '" << bin << "', process '" << proc
+		    << "', yield index " << index << " is " << value.type_name()
+		    << " with value " << value.dump() << ", expected number";
+		throw std::runtime_error(msg.str());
+	}
+	return value.get<double>();
+}
+
+double BuildFit::GetYieldValueOrZero(const string& bin, const string& proc, int index, const string& context) const{
+	if(!_yields.is_object() || !_yields.contains(bin)){
+cout << "GetYieldValueOrZero - bin " << bin << " not in yields" << endl;
+		return 0.;
+	}
+	const json& bin_json = _yields.at(bin);
+	if(!bin_json.is_object() || !bin_json.contains(proc)){
+		cout << "BF JSON warning in " << context << ": missing process '" << proc
+		     << "' in bin '" << bin << "', using 0" << endl;
+		return 0.;
+	}
+	return GetYieldValue(bin, proc, index, context);
+}
+
+std::vector<std::string> BuildFit::FitBackgroundProcesses() const{
+	if(_preserve_background_processes && !_datadriven){
+		return _bkgprocs;
+	}
+	return {_bkg_proc};
+}
+
+std::vector<std::string> BuildFit::ExpandConfiguredProcesses(const std::vector<std::string>& configured) const{
+	vector<string> procs = {};
+	for(auto proc : configured){
+		if(proc == "bkg"){
+			vector<string> bkgprocs = FitBackgroundProcesses();
+			procs.insert(procs.end(), bkgprocs.begin(), bkgprocs.end());
+		}
+		else if(proc == "sig"){
+			procs.push_back(_signalPoint);
+		}
+		else{
+			procs.push_back(proc);
+		}
+	}
+	return procs;
+}
+
+double BuildFit::GuardRateParamInit(double value) const{
+	if(!_rateparam_railguard_enabled)
+		return value;
+	if(_rateparam_floor_zero_init && (!std::isfinite(value) || value <= _rateparam_railguard_min))
+		return _rateparam_railguard_min;
+	return value;
+}
+
+std::string BuildFit::ResolveRateParamName(const std::string& name, const std::string& bin, const std::string& proc) const{
+	std::string resolved = name;
+	std::size_t pos = 0;
+	while((pos = resolved.find("$BIN", pos)) != std::string::npos){
+		resolved.replace(pos, 4, bin);
+		pos += bin.size();
+	}
+	pos = 0;
+	while((pos = resolved.find("$PROCESS", pos)) != std::string::npos){
+		resolved.replace(pos, 8, proc);
+		pos += proc.size();
+	}
+	return resolved;
+}
+
+void BuildFit::SetRateParamRange(const std::string& name, const std::vector<std::string>& bins, const std::vector<std::string>& procs){
+	if(!_rateparam_railguard_enabled)
+		return;
+	std::set<std::string> ranged_params;
+	for(auto bin : bins){
+		for(auto proc : procs){
+			std::string resolved = ResolveRateParamName(name, bin, proc);
+			if(!ranged_params.insert(resolved).second)
+				continue;
+			ch::Parameter* param = cb.GetParameter(resolved);
+			if(param)
+				param->set_range(_rateparam_railguard_min, _rateparam_railguard_max);
+		}
+	}
+}
+
+void BuildFit::AddRateParam(const std::vector<std::string>& procs, const std::vector<std::string>& bins, const std::string& name, double init, string split){
+	vector<string> binsplit;
+	for(auto bin : bins){
+		binsplit.push_back(recombineBinSplitName(bin,split));
+	}
+	double guarded_init = GuardRateParamInit(init);
+cout << "adding rateparam with value " << guarded_init << " to bins" << endl;
+for(auto bin : binsplit)
+cout << bin << endl;
+cout << " for procs" << endl;
+for(auto proc  : procs)
+cout << proc << endl;
+	if(name.find("$BIN") != std::string::npos)
+		cb.cp().process(procs).bin(binsplit).AddSyst(cb, name, "rateParam", SystMap<bin>::init(binsplit, guarded_init));
+	else
+		cb.cp().process(procs).bin(binsplit).AddSyst(cb, name, "rateParam", SystMap<>::init(guarded_init));
+	SetRateParamRange(name, binsplit, procs);
+}
+
+void BuildFit::InsertDirectMCBackgroundProcesses(){
+	if(_direct_mc_backgrounds_inserted)
+		return;
+	if(!_preserve_background_processes || _datadriven)
+		return;
+	cout << "Inserting direct MC background processes" << endl;
+	vector<string> fit_bkgprocs = FitBackgroundProcesses();
+	for(auto bin : _bins_superset){
+		for(auto proc : fit_bkgprocs){
+			double rate = GetYieldValueOrZero(bin, proc, 1, "InsertDirectMCBackgroundProcesses");
+			cout << "direct MC bin " << bin << " proc " << proc << " rate " << rate << endl;
+			ch::Process bkgproc = create_proc("*", _signalDetails[0], "13.6TeV", _signalDetails[1], proc, make_pair(_invcats[bin], bin), false, rate);
+			cb.InsertProcess(bkgproc);
+		}
+	}
+	_direct_mc_backgrounds_inserted = true;
+}
 
 //takes input fit config and JSONFactor as inputs
 BuildFit::BuildFit(string infile){
@@ -17,6 +167,29 @@ BuildFit::BuildFit(string infile){
 	YAML::Node base = YAML::LoadFile(infile);
 	if(base["fitname"])
 		_fitname = base["fitname"].as<string>();
+	if(base["rateparam_railguard"]){
+		YAML::Node guard = base["rateparam_railguard"];
+		if(guard["enabled"])
+			_rateparam_railguard_enabled = guard["enabled"].as<bool>();
+		if(guard["min"])
+			_rateparam_railguard_min = guard["min"].as<double>();
+		if(guard["max"])
+			_rateparam_railguard_max = guard["max"].as<double>();
+		if(guard["floor_zero_init"])
+			_rateparam_floor_zero_init = guard["floor_zero_init"].as<bool>();
+	}
+	if(_rateparam_railguard_enabled && _rateparam_railguard_max <= _rateparam_railguard_min){
+		std::ostringstream msg;
+		msg << "Invalid rateparam_railguard range: max (" << _rateparam_railguard_max
+		    << ") must be greater than min (" << _rateparam_railguard_min << ")";
+		throw std::runtime_error(msg.str());
+	}
+	if(_rateparam_railguard_enabled && _rateparam_railguard_min <= 0.){
+		std::ostringstream msg;
+		msg << "Invalid rateparam_railguard min: " << _rateparam_railguard_min
+		    << " must be positive";
+		throw std::runtime_error(msg.str());
+	}
 	if(base["shape_transfer_fit"]){
 		if(base["shape_transfer_fit"]["bin_association"])
         		_shape_bin_ass = base["shape_transfer_fit"]["bin_association"].as<map<string,vector<string>>>();
@@ -24,10 +197,43 @@ BuildFit::BuildFit(string infile){
         		_shape_ch_ass =  base["shape_transfer_fit"]["channel_association"].as<map<string,vector<string>>>();
 	}
 	if(base["ABCD_fit"]){
+		//for(auto it = _abcd_bin_ass.begin(); it != _abcd_bin_ass.end(); it++){
+		//	cout << "key " << it->first << " maps to " << endl;
+		//	for(auto iit : it->second)
+		//	       cout << " " << iit << endl;
+		//}	
 		if(base["ABCD_fit"]["bin_association"])
 			_abcd_bin_ass = base["ABCD_fit"]["bin_association"].as<map<string,vector<string>>>();
-		if(base["ABCD_fit"]["channel_association"])
-			_abcd_ch_ass =  base["ABCD_fit"]["channel_association"].as<map<string,vector<string>>>();
+		if(base["ABCD_fit"]["channel_association"]){
+			auto basenode = base["ABCD_fit"]["channel_association"];
+			for(auto it = basenode.begin(); it != basenode.end(); it++){
+				string nodekey = it->first.as<string>();
+				_abcd_ch_ass[nodekey] = channelmap();
+				auto nodelist = it->second;
+				//cout << "ch " << nodekey << endl;
+				if(nodelist.IsSequence()){
+					//cout << "node is sequence" << endl;
+					_abcd_ch_ass[nodekey][_bkg_proc] = nodelist.as<vector<string>>();
+				}
+				else if(nodelist.IsMap()){
+					//cout << "node is map" << endl;
+					for(auto iit = nodelist.begin(); iit != nodelist.end(); iit++){
+						_abcd_ch_ass[nodekey][iit->first.as<string>()] = iit->second.as<vector<string>>();
+					}
+				}
+				else{}
+			}
+		
+		}
+		//for(auto it = _abcd_ch_ass.begin(); it != _abcd_ch_ass.end(); it++){
+		//	cout << "key " << it->first << " maps to " << endl;
+		//	for(auto chmap : it->second){
+		//		string proc = chmap.first;
+		//		cout << " proc " << proc << " with bins " << endl;
+		//		for(auto b : chmap.second)
+		//	       		cout << " " << b << endl;
+		//	}
+		//}	
 	}
 	if(base["systematics"]){
 		YAML::Node systs = base["systematics"];
@@ -66,7 +272,6 @@ BuildFit::BuildFit(string infile){
 	for(auto it = _shape_bin_ass.begin(); it != _shape_bin_ass.end(); it++){
 		vector<string> bins = it->second;
 		for(auto bin : bins) _bins_superset.insert(bin);
-		for(auto bin : bins) _bins_superset_shape.insert(bin);
 	}
 	for(auto it = _abcd_bin_ass.begin(); it != _abcd_bin_ass.end(); it++){
 		vector<string> bins = it->second;
@@ -82,15 +287,55 @@ BuildFit::BuildFit(string infile){
 		_datadriven = true;
 	else
 		_datadriven = false;
-
-
-
+	if(base["datasplit"]){
+		if(base["datasplit"].as<string>() == "run")
+			_runsplit = true;
+		else if(base["datasplit"].as<string>() == "year")
+			_yearsplit = true;
+		else{ }	
+	}
+	if(base["preserve_background_processes"])
+		_preserve_background_processes = base["preserve_background_processes"].as<bool>();
 }
 
+void BuildFit::BuildSplitBins(const vector<string>& splits){
+	std::set<std::string> bins_superset;
+	for(auto bin : _bins_superset){
+		for(auto split : splits)
+			bins_superset.insert(recombineBinSplitName(bin,split));	
+	}
+	_bins_superset = bins_superset;
+	std::set<std::string> bins_superset_abcd;
+	for(auto it = _abcd_bin_ass.begin(); it != _abcd_bin_ass.end(); it++){
+		vector<string> bins = it->second;
+		for(auto bin : bins){
+			for(auto split : splits)
+				bins_superset_abcd.insert(recombineBinSplitName(bin,split));
+		}	
+	}
+	_bins_superset_abcd = bins_superset_abcd;
+	//for(auto it = _shape_bin_ass.begin(); it != _shape_bin_ass.end(); it++){
+	//	vector<string> bins;
+	//	for(auto bin : it->second){
+	//		for(auto split : splits)
+	//			bins.push_back(bin+"_"+split);
+	//	}
+	//	_shape_bin_ass[it->first] = bins;
+	//}
+	//for(auto it = _shape_bin_ass.begin(); it != _shape_bin_ass.end(); it++){
+	//	for(auto bin : it->second)
+	//		cout << bin << endl;
+	//}
+}
 
 //builds categories, makes asimov obs if specified, etc
 void BuildFit::PrepFit(JSONFactory* j, string signalPoint, vector<string> datakeys){
 	_yields = j->j;
+	if(_yearsplit) //TODO double check these are the year notations for yearsplit bins
+		BuildSplitBins({"16","17","18","22","23","24","25"});
+	else if(_runsplit)
+		BuildSplitBins({"Run2","Run3"});
+	else{ }	
 	//build cats per fit-type call
 	BuildCats(j);
 cout << "built cats" << endl;	
@@ -115,7 +360,8 @@ cout << "built cats" << endl;
 
 	//sums over all bkg processes to get 1 bkg process
 	//there only is 1 bkg process bc the bkg estimation will be done in data
-	sumBkgs();
+	if(!_preserve_background_processes || _datadriven)
+		sumBkgs();
 	std::cout<<"Parsing signal point " << signalPoint << endl;
 	_signalPoint = signalPoint;
 	ExtractSignalDetails( _signalPoint);
@@ -131,7 +377,9 @@ void BuildFit::SetObservations(){
 	//set observations based on which bins were specified in fit config	
 	cb.AddObservations({"*"}, {_signalDetails[0]}, {"13.6TeV"}, {_signalDetails[1]}, _cats);
         cb.ForEachObs([&](ch::Observation *x){
-            x->set_rate(_obs_rates[x->bin()]);
+		//sum over all processes (set from asimov)
+		double obs = SumObs(x->bin());
+           	x->set_rate(obs);
 	    //cout << x->bin() << " " << x->process() << " " << x->rate() << endl;
         });
 
@@ -169,10 +417,31 @@ void BuildFit::sumBkgs(){
 	}
 }
 
+void BuildFit::BuildShapeTransferFit(){
+	vector<string> splits;
+	if(_yearsplit){
+		splits = {"16","17","18","22","23","24","25"};
+	}
+	else if(_runsplit){
+		splits = {"Run2","Run3"};
+
+	}
+	else
+		splits = {""};	
+	for(auto split : splits)
+		BuildShapeTransferFit(split);
+}
+
+
 //channel name convention goes
 //Ch#IDBin where Bin = xy coord in MsRs plane
-void BuildFit::BuildShapeTransferFit(){
+void BuildFit::BuildShapeTransferFit(const string& split){
 	cout << "Building Shape Transfer Fit" << endl;
+	if(_preserve_background_processes && !_datadriven){
+		InsertDirectMCBackgroundProcesses();
+		cout << "Skipping shape-transfer background constraints for preserved MC background mode" << endl;
+		return;
+	}
 	if(_shape_ch_ass.size() < 1){
 		cout << "No channel association specified for shape transfer fit. This fit config will not be written. Returning." << endl;
 		return;
@@ -180,7 +449,7 @@ void BuildFit::BuildShapeTransferFit(){
 	//take channel 1 as the anchor channel, enforce expectation onto other channels
 	//for channel connected to anchor channel, set initial value to value of non-anchor channel bin to bin in anchor channel
 	//this way, the rate parameter connecting these channels is initialized to the ratio of the CR-like (signal depleted, high stats) bins across the anchor and non-anchor channel
-	string proc = "bkg"; 
+	vector<string> fit_bkgprocs = FitBackgroundProcesses();
 	for(auto chit = _shape_ch_ass.begin(); chit != _shape_ch_ass.end(); chit++){
 		//get anchor channel as specified from fit config
 		string anchor_ch = chit->first;
@@ -188,37 +457,40 @@ void BuildFit::BuildShapeTransferFit(){
 		vector<string> anchor_bins = _shape_bin_ass[anchor_ch];
 		//set yields in every bin of the anchor channel to their nominal value
 		for(int b = 0; b < (int)anchor_bins.size(); b++){
-			double anchor_rate = _yields[anchor_bins[b]][proc][1].get<double>();
-			cout << "anchor_bin " << anchor_bins[b] << " proc " << proc << " rate " << anchor_rate << endl;
-			//set yield
-			ch::Process anchorproc = create_proc("*",_signalDetails[0],"13.6TeV",_signalDetails[1],proc,make_pair(_invcats[anchor_bins[b]],anchor_bins[b]), false, anchor_rate);
-			cb.InsertProcess(anchorproc);
-			//get bin indices - should be last two characters based on naming convention
-			string bin = getBinIdx(anchor_bins[b]);
-			//set yield in buoy channels to that of connected anchor channel for this process
-			for(int i = 0; i < (int)buoy_chs.size(); i++){
-				vector<string> buoy_bins = _shape_bin_ass[buoy_chs[i]];
-				//make sure bin configuration for anchor channel matches that for buoy channel
-				if(buoy_bins.size() != anchor_bins.size()){
-					cout << "Buoy channel " << buoy_chs[i] << " has " << buoy_bins.size() << " bins which does not map to anchor channel " << anchor_ch << " which has " << anchor_bins.size() << ". Skipping." << endl;
-					continue;
+			for(auto proc : fit_bkgprocs){
+				string anchor_bin = recombineBinSplitName(anchor_bins[b],split);
+				double anchor_rate = GetYieldValueOrZero(anchor_bin, proc, 1, "BuildShapeTransferFit anchor rate");
+				if(anchor_rate == 0) anchor_rate = 1e-8;
+				cout << "anchor_bin " << anchor_bin << " proc " << proc << " rate " << anchor_rate << endl;
+				//set yield
+				ch::Process anchorproc = create_proc("*",_signalDetails[0],"13.6TeV",_signalDetails[1],proc,make_pair(_invcats[anchor_bin],anchor_bin), false, anchor_rate);
+				cb.InsertProcess(anchorproc);
+				//get bin indices - should be last two characters based on naming convention
+				string bin = getBinIdx(anchor_bin);
+				//set yield in buoy channels to that of connected anchor channel for this process
+				for(int i = 0; i < (int)buoy_chs.size(); i++){
+					vector<string> buoy_bins = _shape_bin_ass[buoy_chs[i]];
+					//make sure bin configuration for anchor channel matches that for buoy channel
+					if(buoy_bins.size() != anchor_bins.size()){
+						cout << "Buoy channel " << buoy_chs[i] << " has " << buoy_bins.size() << " bins which does not map to anchor channel " << anchor_ch << " which has " << anchor_bins.size() << ". Skipping." << endl;
+						continue;
+					}
+					string buoy_bin;
+		cout << "buoy ch " << buoy_chs[i] << " bin " << bin << " _shape_anchor_bins[buoy_chs[i]] " << _shape_anchor_bins[buoy_chs[i]] << endl;
+					if(bin == _shape_anchor_bins[buoy_chs[i]]){
+						cout << "is buoy ch " << buoy_chs[i] << " bin " << bin << endl;
+						buoy_bin = GetBuoyBin(buoy_chs[i]);
+						buoy_bin = recombineBinSplitName(buoy_bin,split);
+					}
+					else{
+						buoy_bin = recombineBinSplitName(buoy_chs[i]+bin,split);
+					}
+					//match bin indices (assuming that bins have been defined identically)
+					//loop through bins in this channel
+					cout << " buoy_bin " << buoy_bin << " proc " << proc << " rate " << anchor_rate << endl;
+					ch::Process buoyproc = create_proc("*",_signalDetails[0],"13.6TeV",_signalDetails[1],proc,make_pair(_invcats[buoy_bin],buoy_bin), false, anchor_rate);
+					cb.InsertProcess(buoyproc);
 				}
-				string buoy_bin;
-				if(bin == _shape_anchor_bins[buoy_chs[i]]){
-					cout << "is buoy ch " << buoy_chs[i] << " bin " << bin << endl;
-					buoy_bin = GetBuoyBin(buoy_chs[i]);
-				}
-				else{
-					buoy_bin = buoy_chs[i]+bin;
-				}
-				//make sure anchor channel bin exists in buoy channel
-				if(find(buoy_bins.begin(), buoy_bins.end(), buoy_bin) == buoy_bins.end())
-					continue;
-				//match bin indices (assuming that bins have been defined identically)
-				//loop through bins in this channel
-				cout << " buoy_bin " << buoy_bin << " proc " << proc << " rate " << anchor_rate << endl;
-				ch::Process buoyproc = create_proc("*",_signalDetails[0],"13.6TeV",_signalDetails[1],proc,make_pair(_invcats[buoy_bin],buoy_bin), false, anchor_rate);
-				cb.InsertProcess(buoyproc);
 			}
 		}
 	}
@@ -229,12 +501,13 @@ void BuildFit::BuildShapeTransferFit(){
 		string anchor_ch = chit->first;
 		vector<string> buoy_chs = chit->second;
 		vector<string> anchor_bins = _shape_bin_ass.at(anchor_ch);
-		cout << "sys - anchor ch " << anchor_ch << " anchor bin " << _shape_anchor_bins[anchor_ch] << endl;
-		double anchorch_anchorbin_tot_yield = getTotYield(anchor_ch+_shape_anchor_bins[anchor_ch]);
+		string anchor_bin = recombineBinSplitName(anchor_ch+_shape_anchor_bins[anchor_ch],split);
+		cout << "sys - anchor ch " << anchor_ch << " anchor bin " << _shape_anchor_bins[anchor_ch] << " " << anchor_bin << endl;
+		double anchorch_anchorbin_tot_yield = getTotYield(anchor_bin);
 		for(auto buoy_ch : buoy_chs){
 			//get buoy bin for this buoy channel
-			string buoy_bin = GetBuoyBin(buoy_ch);
-			cout << "sys - buoy ch anchor bin " << buoy_bin << endl;
+			string buoy_bin = GetBuoyBin(buoy_ch, split);
+			cout << "sys - buoy ch anchor bin " << buoy_bin << " buoy_ch " << buoy_ch << " split " << split << endl;
 			double buoych_anchorbin_tot_yield = getTotYield(buoy_bin);
 			double transfer_factor = buoych_anchorbin_tot_yield/anchorch_anchorbin_tot_yield;
 			cout << "sys - anchor ch anchor bin yield " << anchorch_anchorbin_tot_yield << " buoy ch anchor bin yield " << buoych_anchorbin_tot_yield << " transfer_factor " << transfer_factor << endl;
@@ -244,18 +517,32 @@ void BuildFit::BuildShapeTransferFit(){
 			//where A = a_00 and B = b_00
 			//such that the expectation of the rate in each buoy channel bin b_i is anchor channel bin a_i * N
 			vector<string> buoy_bins = _shape_bin_ass[buoy_ch];
-			cb.cp().process({proc}).bin(buoy_bins).AddSyst(cb,buoy_ch+"Norm","rateParam",SystMap<>::init(transfer_factor));
+			if(_preserve_background_processes && !_datadriven){
+				for(auto proc : fit_bkgprocs){
+					string anchor_bin = recombineBinSplitName(anchor_ch+_shape_anchor_bins[anchor_ch],split);
+					double anchor_yield = GetYieldValueOrZero(anchor_bin, proc, 1, "BuildShapeTransferFit proc transfer anchor");
+					double buoy_yield = GetYieldValueOrZero(buoy_bin, proc, 1, "BuildShapeTransferFit proc transfer buoy");
+					double proc_transfer_factor = anchor_yield > 0 ? buoy_yield/anchor_yield : 1.;
+					//separate rate params per split
+					AddRateParam({proc}, buoy_bins, buoy_ch+"Norm_"+proc+"_"+split, proc_transfer_factor, split);
+				}
+			}
+			else{
+				//separate rate params per split
+				AddRateParam({_bkg_proc}, buoy_bins, buoy_ch+"Norm_"+split, transfer_factor,split);
+			}
 			//loop through bins in buoy_ch to set observed rates
 			if(_datadriven && _asimov){ //if not asimov or not datadriven, 
 				vector<string> buoy_bins = _shape_bin_ass[buoy_ch];
 				for(auto buoy_bin : buoy_bins){
 					if(buoy_bin.find("CR") != string::npos)
 						continue;
+					buoy_bin = recombineBinSplitName(buoy_bin,split);	
 					string bin = getBinIdx(buoy_bin);
-					string anchorch_bin = anchor_ch+bin;
-					double anchor_rate = _yields[anchorch_bin][proc][1].get<double>();
-					cout << "setting obs in buoy bin " << buoy_bin << " from anchorch_bin " << anchorch_bin << " to " << transfer_factor * anchor_rate << endl;
-					_obs_rates[buoy_bin] = double(int(transfer_factor * anchor_rate));
+					string anchorch_bin = recombineBinSplitName(anchor_ch+bin,split);
+					double anchor_rate = GetYieldValue(anchorch_bin, _bkg_proc, 1, "BuildShapeTransferFit datadriven asimov observation");
+					_obs_rates[buoy_bin][_bkg_proc] = double(int(transfer_factor * anchor_rate));
+					cout << "setting obs in buoy bin " << buoy_bin << " from anchorch_bin " << anchorch_bin << " to " << transfer_factor * anchor_rate << " " << _obs_rates[buoy_bin][_bkg_proc] << endl;
 				}
 
 			}
@@ -265,10 +552,29 @@ void BuildFit::BuildShapeTransferFit(){
 	
 }
 
+void BuildFit::BuildABCDFit(){
+	vector<string> splits;
+	if(_yearsplit){
+		splits = {"16","17","18","22","23","24","25"};
+	}
+	else if(_runsplit){
+		splits = {"Run2","Run3"};
+
+	}
+	else
+		splits = {""};	
+	for(auto split : splits)
+		BuildABCDFit(split);
+}
 
 //BuildABCD - channel-to-channel ABCD
-void BuildFit::BuildABCDFit(){
+void BuildFit::BuildABCDFit(const string& split){
 	cout << "Building ABCD Fit" << endl;
+	if(_preserve_background_processes && !_datadriven){
+		InsertDirectMCBackgroundProcesses();
+		cout << "Skipping ABCD background constraints for preserved MC background mode" << endl;
+		return;
+	}
 	//check that channel association exists within ABCD fit config
 	if(_abcd_ch_ass.size() < 1){
 		cout << "No channel association specified for ABCD fit. This fit config will not be written. Returning." << endl;
@@ -276,81 +582,275 @@ void BuildFit::BuildABCDFit(){
 	}
 	ch::Categories cats_abcd;
 	BuildCatsSubset(_bins_superset_abcd, cats_abcd);
-	//set observations based on which bins were specified in fit config for ABCD bins (shape transfer bins are set in that function)
-	cb.AddProcesses(   {"*"}, {_signalDetails[0]}, {"13.6TeV"}, {_signalDetails[1]}, {_bkg_proc}, cats_abcd, false);
+	//for having separate processes in different bins
+	for(auto c : cats_abcd){
+		//only do for specified split
+		if(split != "" && c.second.find(split) == string::npos)
+			continue;
+		if(c.second.find("SR") == string::npos){
+			string bkgproc = getProcess(c.second);
+			//cout << "cat " << c.second << " gets proc " << bkgproc << endl;
+			cb.AddProcesses(   {"*"}, {_signalDetails[0]}, {"13.6TeV"}, {_signalDetails[1]}, {bkgproc}, {c}, false);
+		}
+		//assume only SRs are getting predicted from ABCD
+		else{
+			vector<string> procs;
+			string ch = getChannel(c.second);//c.second.substr(0, c.second.size() - 2);
+			//cout << "ch " << ch << endl;
+
+			for(auto it = _abcd_ch_ass[ch].begin(); it != _abcd_ch_ass[ch].end(); it++){
+			//	cout << "ch " << ch << " proc " << it->first << " has " << it->second.size() << " cr bins" << endl;
+				procs.push_back(it->first);
+			}
+			//cout << "cat " << c.second << " gets procs " << endl;
+			//for(auto p : procs) cout << " " << p << endl;
+			cb.AddProcesses(   {"*"}, {_signalDetails[0]}, {"13.6TeV"}, {_signalDetails[1]}, procs, {c}, false);
+		}
+	}
+	//cb.AddProcesses(   {"*"}, {_signalDetails[0]}, {"13.6TeV"}, {_signalDetails[1]}, {_bkg_proc}, cats_abcd, false);
 	//initialize rate of each process to 1 (bkg procs only rn) across all bins
 	//such that rate * rateParam = expectation in each bin
         cb.ForEachProc([&](ch::Process *x){
-		if(x->process() != _bkg_proc) return;
+		if(x->process() == _signalPoint) return;
 		//only do for bins in ABCD region
 		if(find(_bins_superset_abcd.begin(), _bins_superset_abcd.end(), x->bin()) == _bins_superset_abcd.end()) return;
-		cout << "abcd setting rate for bin " << x->bin() << " proc " << x->process() << endl;
+		//cout << "abcd setting rate for bin " << x->bin() << " proc " << x->process() << " to 1 " << endl;
             x->set_rate(1.);
         });
 	//only applies ABCD treatment to background processes
 	//separate ABCD factors for each bin, bins in channel tied together with extra systematics
 	for(auto chit = _abcd_ch_ass.begin(); chit != _abcd_ch_ass.end(); chit++){
 		string sr_ch = chit->first;
-		cout << "sr_ch " << sr_ch << endl;
+		//cout << "sr_ch " << sr_ch << endl;
 		vector<string> sr_bins = _abcd_bin_ass[sr_ch];
-		vector<string> cr_chs = chit->second;
-		for(auto sr_bin : sr_bins){
-			cout << "sr_bin " << sr_bin << endl;
-			vector<string> cr_bins;
-			string binidx = getBinIdx(sr_bin);
-			vector<string> cr_bins_matchidx; //get bins of CR channels that match this bin idx
-			//set rates of cr channels to be their nominal expected yield
-			for(auto cr_ch : cr_chs){
-				//assuming only one bin per channel right now
-				cr_bins = _abcd_bin_ass[cr_ch];
-				for(auto cr_bin : cr_bins){
-					if(getBinIdx(cr_bin) != binidx)
-						continue;
-					cr_bins_matchidx.push_back(cr_bin);
-					double bkgrate_cr = _yields[cr_bin][_bkg_proc][1].get<double>();
-					cb.cp().process({_bkg_proc}).bin({cr_bin}).AddSyst(cb, "scale_$BIN", "rateParam", SystMap<bin>::init({cr_bin}, bkgrate_cr));
+                for(auto pit = _abcd_ch_ass[sr_ch].begin(); pit != _abcd_ch_ass[sr_ch].end(); pit++){
+			//for each process get each bin associated with sr ch
+			//cout << "process " << pit->first << endl;
+			vector<string> cr_chs = pit->second;
+			for(auto sr_bin : sr_bins){
+				//cout << "sr_bin " << sr_bin << endl;
+				sr_bin = recombineBinSplitName(sr_bin,split);
+				string binidx = getBinIdx(sr_bin);
+				//for a datadriven asimov fit (ie when the SR is blinded), set the observed yields in the SR bins to the expectation
+				//set rate of bkg in sr_bin to nominally be prediction from observations in cr bins
+				//A_pred = B*(C/D) from A*D = B*C
+				vector<string> cr_bins_matchidx;
+				for(auto cr_ch : cr_chs){
+					vector<string> cr_bins = _abcd_bin_ass[cr_ch];
+					for(auto cr_bin : cr_bins){
+						if(getBinIdx(cr_bin) != binidx)
+							continue;
+						string crbin = recombineBinSplitName(cr_bin,split);
+						cr_bins_matchidx.push_back(crbin);
+						double bkgrate_cr = GetYieldValue(crbin, _bkg_proc, 1, "BuildABCDFit CR rate");
+						//cb.cp().process({_bkg_proc}).bin({cr_bin}).AddSyst(cb, "scale_$BIN", "rateParam", SystMap<bin>::init({cr_bin}, bkgrate_cr));
+						AddRateParam({pit->first}, {crbin}, "scale_$BIN", bkgrate_cr,split);
+					}
 				}
+				//cout << " cr bins " << endl;
+			       	//for(auto b : cr_bins_matchidx) cout << " " << b << endl;	
+				if(_asimov && _datadriven){
+					_obs_rates[sr_bin][pit->first] = double(int(_obs_rates[cr_bins_matchidx[0]][pit->first] * (_obs_rates[cr_bins_matchidx[1]][pit->first] / _obs_rates[cr_bins_matchidx[2]][pit->first])));
+					cout << "adding obs in signal ABCD bin " << sr_bin <<  " from CRs " <<  cr_bins_matchidx[0] << ", " << cr_bins_matchidx[1] << ", " << cr_bins_matchidx[2] << " for total " << sr_bin << " for process " << pit->first << endl;
 
-			}
-			for(auto bin :  cr_bins_matchidx) cout << "match bin " << bin << endl;
-			//for a datadriven asimov fit (ie when the SR is blinded), set the observed yields in the SR bins to the expectation
-			//set rate of bkg in sr_bin to nominally be prediction from observations in cr bins
-			//A_pred = B*(C/D) from A*D = B*C
-			if(_asimov && _datadriven){
-				_obs_rates[sr_bin] = double(int(_obs_rates[cr_bins_matchidx[0]] * (_obs_rates[cr_bins_matchidx[1]] / _obs_rates[cr_bins_matchidx[2]])));
-			}
+					cout << "cr obs for process " << pit->first << endl;
+					for(auto cr_ch : cr_bins_matchidx)
+						cout << cr_ch << ": " << _obs_rates[cr_ch][pit->first] << endl;
 
 
-			//since the rates were initialized to the nominal yields for these bins
-			//these systmatics are initialized to 1 and can float
-			//get parameter names for CR bin rate params
-			string cr_rateparams = "scale_"+cr_bins_matchidx[0];
-			for(int i = 1; i < (int)cr_bins_matchidx.size(); i++)
-				cr_rateparams += ",scale_"+cr_bins_matchidx[i];
-			//set prediction for sr bin
-			//A_pred = B*(C/D) from A*D = B*C
-			//tie all bins in this ABCD fit together for bkg prediction in SR bin
-			cb.cp().process({_bkg_proc}).bin({sr_bin}).AddSyst(cb, "scale_$BIN", "rateParam", SystMapFunc<>::init
-						("(@0*@1/@2)",cr_rateparams)
+				       cout << " this contribution " << (_obs_rates[cr_bins_matchidx[0]][pit->first] * (_obs_rates[cr_bins_matchidx[1]][pit->first] / _obs_rates[cr_bins_matchidx[2]][pit->first])) << " final total " << SumObs(sr_bin) << endl;
+				}
+				string cr_rateparams = "scale_"+cr_bins_matchidx[0];
+				for(int i = 1; i < (int)cr_bins_matchidx.size(); i++)
+					cr_rateparams += ",scale_"+cr_bins_matchidx[i];
+				cout << "proc " << pit->first << " cr_rateparams " << cr_rateparams << " sr bin " << sr_bin << endl;
+				cb.cp().process({pit->first}).bin({sr_bin}).AddSyst(cb, "scale_$BIN_$PROCESS", "rateParam", SystMapFunc<>::init
+								("(@0*@1/@2)",cr_rateparams)
 					);
+			}
+			////since the rates were initialized to the nominal yields for these bins
+			////these systmatics are initialized to 1 and can float
+			////get parameter names for CR bin rate params
+			//string cr_rateparams = "scale_"+cr_bins_matchidx[0];
+			//for(int i = 1; i < (int)cr_bins_matchidx.size(); i++)
+			//	cr_rateparams += ",scale_"+cr_bins_matchidx[i];
+			////set prediction for sr bin
+			////tie all bins in this ABCD fit together for bkg prediction in SR bin
 		}
 
 	}
 	
 }	
 
+
+void BuildFit::AddTemplateProcessABCD(string src_ch, string target_ch, double tf, string proc){
+	vector<string> splits;
+	if(_yearsplit){
+		splits = {"16","17","18","22","23","24","25"};
+	}
+	else if(_runsplit){
+		splits = {"Run2","Run3"};
+
+	}
+	else
+		splits = {""};	
+	for(auto split : splits)
+		AddTemplateProcessABCD(src_ch, target_ch, split, tf, proc);
+}
+
+void BuildFit::AddTemplateProcessABCD(string src_ch, string target_ch, string split, double tf, string proc){
+	cout << "Adding template process for ABCD prediction from source channel " << src_ch << " to target channel " << target_ch << " for split " << split << endl;
+	ch::Categories cats_abcd;
+	BuildCatsSubset(_bins_superset_abcd, cats_abcd);
+	double totint_srcch, totint_targetch;
+	bool calc_tf = false;
+	if(tf == -999){
+		tf = 1e9;
+		calc_tf = true;
+	}
+	for(auto c : cats_abcd){
+		if(c.second.find(split) == string::npos)
+			continue;
+		if(c.second.find(target_ch) != string::npos){
+			if(proc == "")
+				proc = getProcess(src_ch+"00");
+			//cout << "2 - cat " << c.second << " gets proc " << proc << " from src " << src_ch+"00" << endl;
+			cb.AddProcesses(   {"*"}, {_signalDetails[0]}, {"13.6TeV"}, {_signalDetails[1]}, {proc}, {c}, false);
+			string binidx = getBinIdx(c.second);
+			string src_bin = recombineBinSplitName(src_ch+binidx,split);
+			double srcch_yield = GetYieldValue(src_bin, _bkg_proc,1,"AddTemplateProcess rate");
+			string targetch_bin = recombineBinSplitName(c.second,split);
+			double targetch_yield = GetYieldValue(targetch_bin, _bkg_proc, 1, "AddTemplateProcess rate");
+			totint_srcch += srcch_yield;
+			totint_targetch += targetch_yield;
+			cout << "bin " << binidx << " ratio " << targetch_yield / srcch_yield << endl;
+			if(calc_tf && (targetch_yield / srcch_yield < tf)) //take min ratio between src and target ch bins
+				tf = targetch_yield / srcch_yield;
+				
+			//cout << "bin " << binidx << " src " << src_ch << " yield " << GetYieldValue(src_ch+binidx, _bkg_proc,1,"AddTemplateProcess rate") << endl;
+			//cout << "bin " << binidx << " target " << target_ch << " yield " << GetYieldValue(c.second, _bkg_proc,1,"AddTemplateProcess rate") << endl;
+		}
+	}
+	//tf = totint_targetch/totint_srcch;
+	cout << "template transfer factor " << tf << endl;
+//cout << "total src ch " << totint_srcch << " total target ch " << totint_targetch << " tf " << tf << endl;
+	vector<string> systbins;
+        cb.ForEachProc([&](ch::Process *x){
+		if(x->bin().find(split) == string::npos) return;
+		if(x->process() != proc) return;
+		if(x->bin().find(target_ch) == string::npos) return;
+		//only do for bins in ABCD region
+		if(find(_bins_superset_abcd.begin(), _bins_superset_abcd.end(), x->bin()) == _bins_superset_abcd.end()) return;
+		cout << "addtemplateprocess setting rate for bin " << x->bin() << " proc " << x->process(); 
+		string binidx = getBinIdx(x->bin());
+		string srcch_bin = recombineBinSplitName(src_ch+binidx,split);
+		double srcch_rate = GetYieldValue(srcch_bin, _bkg_proc, 1, "BuildABCDFit CR rate");
+		cout << " to " << srcch_rate << endl;
+            	x->set_rate(srcch_rate);
+		systbins.push_back(target_ch+binidx);
+        });
+	//update prediction in related SRs
+	if(_asimov && _datadriven){
+		for(auto chit = _abcd_ch_ass.begin(); chit != _abcd_ch_ass.end(); chit++){
+			string sr_ch = chit->first;
+			cout << "sr_ch " << sr_ch << endl;
+			vector<string> sr_bins = _abcd_bin_ass[sr_ch];
+        	        for(auto pit = _abcd_ch_ass[sr_ch].begin(); pit != _abcd_ch_ass[sr_ch].end(); pit++){
+				//for each process get each bin associated with sr ch
+				cout << "process " << pit->first << endl;
+				vector<string> cr_chs = pit->second;
+				//skip if target ch is not found in this set of CRs
+				if(find(cr_chs.begin(), cr_chs.end(), target_ch) == cr_chs.end())
+					continue;
+				vector<string> cr_bins_matchidx;
+				for(auto sr_bin : sr_bins){
+					sr_bin = recombineBinSplitName(sr_bin,split);
+					cout << "sr_bin " << sr_bin << endl;
+					string binidx = getBinIdx(sr_bin);
+					//get index of target_ch in cr_chs to modify the correct yield
+					int targetcrch_idx = -1;
+					for(int c = 0; c < (int)cr_chs.size(); c++){
+						if(cr_chs[c] == target_ch)
+							targetcrch_idx = c;
+						//get bins for pred calculation
+						vector<string> cr_bins = _abcd_bin_ass[cr_chs[c]];
+						for(auto cr_bin : cr_bins){
+							if(getBinIdx(cr_bin) != binidx)
+								continue;
+							cr_bin = recombineBinSplitName(cr_bin,split);
+							cr_bins_matchidx.push_back(cr_bin);
+						}
+					}
+					cout << "unedited cr obs for process " << pit->first << endl;
+					for(auto cr_ch : cr_bins_matchidx)
+						cout << cr_ch << ": " << _obs_rates[cr_ch][pit->first] << endl;
+					//get yields for nominal, existing processes in ABCD CRs	
+					vector<double> cr_yields = {SumObs(cr_bins_matchidx[0]), SumObs(cr_bins_matchidx[1]), SumObs(cr_bins_matchidx[2])};
+					cout << "unedited total cr_yields" << endl;
+					for(auto y : cr_yields)
+						cout << y << endl;
+					//subtract predicted src_ch yield from corresponding target_ch
+					string srcch_bin = recombineBinSplitName(src_ch+binidx,split);
+					double pred_template_rate = double(int(tf*GetYieldValue(srcch_bin, _bkg_proc, 1, "BuildABCDFit CR rate")));
+					cr_yields[targetcrch_idx] = double(int(cr_yields[targetcrch_idx] - pred_template_rate));
+					//update overall yield for target ch by subtracting out even contribution from every other process
+					string targetch_bin = recombineBinSplitName(target_ch+binidx,split);
+					_obs_rates[targetch_bin][proc] = pred_template_rate;
+					//overwrite old rateparam with new value
+					cout << "Overwriting rate param for bin " << targetch_bin << " proc " << pit->first << " with rate " << cr_yields[targetcrch_idx] << endl;
+					AddRateParam({pit->first}, {targetch_bin}, "scale_$BIN", cr_yields[targetcrch_idx],split);
+					cout << "subtract value " << double(int(pred_template_rate/(_obs_rates[targetch_bin].size()-1))) << " from obs_rates " << _obs_rates[targetch_bin][pit->first] << endl;
+					_obs_rates[targetch_bin][pit->first] -= double(int(pred_template_rate/(_obs_rates[targetch_bin].size()-1)));
+					double predbkg_yield = double(int(cr_yields[0] * (cr_yields[1] / cr_yields[2])));
+
+					cout << "subtracting contribution " << pred_template_rate << " from bin " << target_ch+binidx << endl;
+
+					cout << "edited cr obs for process " << pit->first << endl;
+					for(auto cr_ch : cr_bins_matchidx)
+						cout << cr_ch << ": " << _obs_rates[cr_ch][pit->first] << endl;
+					cout << "nominal cr obs for process " << proc << endl;
+					for(auto cr_ch : cr_bins_matchidx)
+						cout << cr_ch << ": " << _obs_rates[cr_ch][proc] << endl;
+					cout << "edited cr obs for process " << pit->first << endl;
+					for(auto y : cr_yields)
+						cout << y << endl;
+					//pit->first is the process to edit, proc is the process that was added 
+					_obs_rates[sr_bin][pit->first] = predbkg_yield;
+					cout << "editing obs in signal ABCD bin " << sr_bin <<  " from CRs " <<  cr_bins_matchidx[0] << ", " << cr_bins_matchidx[1] << ", " << cr_bins_matchidx[2] << " for total contribution " << predbkg_yield << endl;
+				        cout << " this contribution " << predbkg_yield << " final total " << SumObs(sr_bin) << endl;
+					cr_bins_matchidx.clear();	
+				}
+			}
+		}
+	}
+	//add rate param here only for given proc with a set range (not sure how to do this with Systematic functions in CombineHarvester, so it's going in by hand
+//cout << " adding rateparam for proc " << proc << " and first systbin " << systbins[0] << endl;
+	AddRateParam({proc}, {systbins}, "scale_"+target_ch+"_$PROCESS", tf, split);
+	//cb.cp().process({proc}).bin({systbins}).AddSyst(cb, "scale_"+target_ch+"_$PROCESS", "rateParam", SystMap<bin>::init(systbins, tf));
+	//cb.AddDatacardLineAtEnd("scale_"+target_ch+"_"+proc+" rateParam  "+target_ch+"* "+proc+"  "+std::to_string(-totint_targetch/totint_srcch)+" ["+std::to_string(-totint_targetch)+",0]");
+
+}
+
+
 //BuildABCD - MsRs ABCD within one channel
 void BuildFit::BuildABCDFitSingleBin(){
 	//check that channel association exists within ABCD fit config
+	if(_preserve_background_processes && !_datadriven){
+		InsertDirectMCBackgroundProcesses();
+		cout << "Skipping single-bin ABCD background constraints for preserved MC background mode" << endl;
+		return;
+	}
 	if(_abcd_bin_ass.size() < 1){
 		cout << "No channel association specified for ABCD fit. This fit config will not be written. Returning." << endl;
 		return;
 	}
 	//set observations based on which bins were specified in fit config	
-	cb.AddProcesses(   {"*"}, {_signalDetails[0]}, {"13.6TeV"}, {_signalDetails[1]}, {_bkg_proc}, _cats, false);
+	vector<string> fit_bkgprocs = FitBackgroundProcesses();
+	cb.AddProcesses(   {"*"}, {_signalDetails[0]}, {"13.6TeV"}, {_signalDetails[1]}, fit_bkgprocs, _cats, false);
 	//initialize rate of each process to 1 (bkg procs only rn) across all bins
 	//such that rate * rateParam = expectation in each bin
         cb.ForEachProc([&](ch::Process *x){
+	    if(find(fit_bkgprocs.begin(), fit_bkgprocs.end(), x->process()) == fit_bkgprocs.end()) return;
             x->set_rate(1.);
         });
 	cout << "analysis " << _signalDetails[0] << " channel " << _signalDetails[1] << endl;
@@ -378,7 +878,7 @@ void BuildFit::BuildABCDFitSingleBin(){
 		//set rate of bkg in sr_bin to nominally be prediction from observations in cr bins
 		//A_pred = B*(C/D) from A*D = B*C
 		if(_asimov && _datadriven){
-			_obs_rates[sr_bin] = double(int(_obs_rates[cr_bins[0]] * (_obs_rates[cr_bins[1]] / _obs_rates[cr_bins[2]])));
+			_obs_rates[sr_bin][_bkg_proc] = double(int(_obs_rates[cr_bins[0]][_bkg_proc] * (_obs_rates[cr_bins[1]][_bkg_proc] / _obs_rates[cr_bins[2]][_bkg_proc])));
 		}
 
 		//tie all bins in this ABCD fit together
@@ -386,19 +886,33 @@ void BuildFit::BuildABCDFitSingleBin(){
 		//these systmatics at initialized to 1
 		//cb.cp().process({_bkg_proc}).bin(cr_bins).AddSyst(cb, "scale_$BIN", "rateParam", SystMap<bin>::init(cr_bins, 1));
 		for(auto cr_bin : cr_bins){
-			double bkgrate_cr = _yields[cr_bin][_bkg_proc][1].get<double>();
-			cb.cp().process({_bkg_proc}).bin({cr_bin}).AddSyst(cb, "scale_$BIN", "rateParam", SystMap<bin>::init({cr_bin}, bkgrate_cr));
+			for(auto proc : fit_bkgprocs){
+				double bkgrate_cr = GetYieldValueOrZero(cr_bin, proc, 1, "BuildABCDFitSingleBin CR rate");
+				string pname = (_preserve_background_processes && !_datadriven) ? "scale_"+cr_bin+"_"+proc : "scale_$BIN";
+				AddRateParam({proc}, {cr_bin}, pname, bkgrate_cr,"");
+			}
 		}
 
 		//set prediction for sr bin
-		string cr_rateparams = "scale_"+cr_bins[0];
-		for(int i = 1; i < (int)cr_bins.size(); i++)
-			cr_rateparams += ",scale_"+cr_bins[i];
-		//A_pred = B*(C/D) from A*D = B*C
-		cout << "_bkg_proc " << _bkg_proc << endl;
-		cb.cp().process({_bkg_proc}).bin({sr_bin}).AddSyst(cb, "scale_$BIN", "rateParam", SystMapFunc<>::init
-					("(@0*@1/@2)",cr_rateparams)
-				);
+		for(auto proc : fit_bkgprocs){
+			string cr_rateparams;
+			if(_preserve_background_processes && !_datadriven){
+				cr_rateparams = "scale_"+cr_bins[0]+"_"+proc;
+				for(int i = 1; i < (int)cr_bins.size(); i++)
+					cr_rateparams += ",scale_"+cr_bins[i]+"_"+proc;
+			}
+			else{
+				cr_rateparams = "scale_"+cr_bins[0];
+				for(int i = 1; i < (int)cr_bins.size(); i++)
+					cr_rateparams += ",scale_"+cr_bins[i];
+			}
+			//A_pred = B*(C/D) from A*D = B*C
+			cout << "_bkg_proc " << proc << endl;
+			string sr_param = (_preserve_background_processes && !_datadriven) ? "scale_"+sr_bin+"_"+proc : "scale_$BIN";
+			cb.cp().process({proc}).bin({sr_bin}).AddSyst(cb, sr_param, "rateParam", SystMapFunc<>::init
+						("(@0*@1/@2)",cr_rateparams)
+					);
+		}
 		//option to pin individual rates with logNormals is set in DoSystematics()
 	}
 
@@ -411,22 +925,39 @@ void BuildFit::BuildABCDFitSingleBin(){
 	//for(auto b : bins) cout << b << endl;
 }
 
-//DoSystematics
 void BuildFit::DoSystematics(){
+	vector<string> splits;
+	if(_yearsplit){
+		splits = {"16","17","18","22","23","24","25"};
+	}
+	else if(_runsplit){
+		splits = {"Run2","Run3"};
+
+	}
+	else
+		splits = {""};	
+	for(auto split : splits)
+		DoSystematics(split);
+
+}
+//DoSystematics
+void BuildFit::DoSystematics(const string& split){
+	cout << "Adding additional systematics" << endl;
 	for(auto syst : _systs){
-		vector<string> procs = {};
-		for(auto proc : syst._procs){
-			if(proc == "bkg")
-				procs.push_back(_bkg_proc);
-			else if(proc == "sig")
-				procs.push_back(_signalPoint);
-		}
+		vector<string> procs = ExpandConfiguredProcesses(syst._procs);
+		vector<string> bins;
+		string name = syst._name+"_"+split;
 		if(syst._bins.size() == 0){
 			for(auto bin : _bins_superset)
-				syst._bins.push_back(bin);
+				bins.push_back(recombineBinSplitName(bin,split));
 		}
-		cb.cp().process(procs).bin(syst._bins).AddSyst(cb, syst._name, syst._type, SystMap<>::init(syst._init_val));
+		else{
+			for(auto bin : syst._bins)
+				bins.push_back(recombineBinSplitName(bin,split));
+		}
+		cb.cp().process(procs).bin(bins).AddSyst(cb, name, syst._type, SystMap<>::init(syst._init_val));
 	}
+
 }
 //WriteDatacard
 void BuildFit::WriteDatacard(string datacard_dir, bool verbose){
@@ -466,6 +997,7 @@ ch::Categories BuildFit::BuildCats(JSONFactory* j){
 //sets observation to sum of MC backgrounds (skips MC sig and data)
 std::map<std::string, float> BuildFit::BuildAsimovData(JSONFactory* j){
 	_obs_rates.clear();
+	map<string, float> obsrates;
 	//outer loop bin iterator
 	for (json::iterator it = j->j.begin(); it != j->j.end(); ++it){
 		//inner loop process iterator
@@ -488,17 +1020,22 @@ std::map<std::string, float> BuildFit::BuildAsimovData(JSONFactory* j){
 				json json_array = it2.value();
 				//cout << "binname " << binname << " proc " << it2.key() << " yield " << json_array[1].get<float>() << endl;
 				//std::cout<< it2.key()<<" "<<json_array[1].get<float>()<<" "<<"\n";
-				totalBkg+= json_array[1].get<float>();
+				totalBkg+= GetYieldValue(binname, it2.key(), 1, "BuildAsimovData");
+				_obs_rates[binname][it2.key()] = float(int(GetYieldValue(binname, it2.key(), 1, "BuildAsimovData")));
+				if(_obs_rates[binname][it2.key()] == 0){
+					_obs_rates[binname][it2.key()] = 1e-8; //avoiding fit issues
+				}
 			}
 		}
-		_obs_rates[binname] = float(int(totalBkg));
-		if(_obs_rates[binname] == 0)
-			_obs_rates[binname] = 1e-8; //avoiding fit issues
-		std::cout<<"adding totalbkg: "<<binname<<" "<< float(int(totalBkg))<< " " << _obs_rates[binname] << "\n";
+		obsrates[binname] = float(int(totalBkg));
+		if(obsrates[binname] == 0){
+			obsrates[binname] = 1e-8; //avoiding fit issues
+		}
+		std::cout<<"adding totalbkg: "<<binname<<" "<< float(int(totalBkg))<< " " << obsrates[binname] << "\n";
 	}
-	if(_obs_rates.size() < 1)
+	if(obsrates.size() < 1)
 		cout << "Error: no observation yields set. This may be due to a mismatch in binnames between the BFI json and the fit config yaml file" << endl;
-	return _obs_rates;
+	return obsrates;
 }
 std::vector<std::string> BuildFit::GetBkgProcs(JSONFactory* j){
 	_bkgprocs.clear();
@@ -507,7 +1044,7 @@ std::vector<std::string> BuildFit::GetBkgProcs(JSONFactory* j){
                 std::string binname = it.key();
                 for (json::iterator it2 = it.value().begin(); it2 != it.value().end(); ++it2){
                 //      std::cout<< it2.key()<<"\n";
-                        if( BFTool::ContainsAnySubstring( it2.key(), sigkeys) || it2.key() == "data_obs" || BFTool::ContainsAnySubstring(it2.key(),datakeys)){
+                        if( BFTool::ContainsAnySubstring( it2.key(), sigkeys) || it2.key() == "data_obs" || IsDataKey(it2.key()) || IsDataEraKey(it2.key())){
                                 continue;
                         }
 			//skip bkgs already there - get unique procs
@@ -527,7 +1064,7 @@ std::vector<std::string> BuildFit::GetDataProcs(JSONFactory* j){
                 std::string binname = it.key();
                 for (json::iterator it2 = it.value().begin(); it2 != it.value().end(); ++it2){
                       //std::cout<< it2.key()<<"\n";
-                        if(  BFTool::ContainsAnySubstring(it2.key(),datakeys) ){
+                        if( IsDataKey(it2.key()) ){
                                 bkgprocs.push_back(it2.key());
                         }
                 }
@@ -566,36 +1103,43 @@ std::vector<std::string> BuildFit::GetBinSet( JSONFactory* j){
 std::map<std::string, float> BuildFit::LoadDataProcesses(JSONFactory* j, std::vector<std::string> dataKeys){
 	_obs_rates.clear();	
 	float obs_rate=0.;
+	map<string, float> obs_rates;
 	cout << "LoadDataProcesses - start" << endl;
         for (json::iterator it = j->j.begin(); it != j->j.end(); ++it){
 		cout << it.key() << endl;
                 //inner loop process iterator
                 std::string binname = it.key();
                 //assign yield to obs bin map
+                obs_rates[binname] = 0;
 		for(int i=0; i<(int) dataKeys.size(); i++){
-                	json json_array = j->j[binname][dataKeys[i]];
-               		obs_rate += json_array[1].get<float>();
+			obs_rate += GetYieldValue(binname, dataKeys[i], 1, "LoadDataProcesses");
+			_obs_rates[binname][dataKeys[i]] = GetYieldValue(binname, dataKeys[i], 1, "LoadDataProcesses");
+			if(_obs_rates[binname][dataKeys[i]]== 0)
+				_obs_rates[binname][dataKeys[i]] = 1e-8; //avoiding fit issues
        		}
-		_obs_rates[binname] = obs_rate;
-		if(_obs_rates[binname] == 0)
-			_obs_rates[binname] = 1e-8; //avoiding fit issues
-		obs_rate=0.;
+		obs_rates[binname] = obs_rate;
+		obs_rate = 0.;
 	}
 	cout << "LoadDataProcesses - end" << endl;
-	return _obs_rates;
+	return obs_rates;
 }
 std::map<std::string, float> BuildFit::LoadObservations(JSONFactory* j){
 	_obs_rates.clear();
+	map<string, float> obs_rates;
 	for (json::iterator it = j->j.begin(); it != j->j.end(); ++it){
                 //inner loop process iterator
                 std::string binname = it.key();
                 //assign yield to obs bin map
-		json json_array = j->j[binname]["data"];
-            	_obs_rates[binname] = json_array[1].get<float>();
-		if(_obs_rates[binname] == 0)
-			_obs_rates[binname] = 1e-8; //avoiding fit issues
+		//need to set _obs_rates for given process if it contributes to a certain CR
+		string bkgproc = getProcess(binname);
+		_obs_rates[binname][bkgproc] = GetYieldValue(binname, "data", 1, "LoadObservations");
+		obs_rates[binname] = GetYieldValue(binname, "data", 1, "LoadObservations");
+		if(_obs_rates[binname][bkgproc] == 0)
+			_obs_rates[binname][bkgproc] = 1e-8; //avoiding fit issues
+		if(obs_rates[binname] == 0)
+			obs_rates[binname] = 1e-8; //avoiding fit issues
         }
-	return _obs_rates;	
+	return obs_rates;	
 }
 double BuildFit::GetStatFracError(JSONFactory* j, std::string binName, std::vector<std::string> bkgprocs ){
 	double fracError=0;
@@ -604,9 +1148,9 @@ double BuildFit::GetStatFracError(JSONFactory* j, std::string binName, std::vect
 
                 //assign yield to obs bin map
 	for(int i=0; i<(int)bkgprocs.size(); i++){
-        	json json_array = j->j[binName][bkgprocs[i]];
-               	bkgYield += json_array[1].get<float>();
-		statError += json_array[2].get<float>()*json_array[2].get<float>();
+		bkgYield += GetYieldValue(binName, bkgprocs[i], 1, "GetStatFracError yield");
+		double procStatError = GetYieldValue(binName, bkgprocs[i], 2, "GetStatFracError stat error");
+		statError += procStatError*procStatError;
 	}
 	if(bkgYield>0){
 		fracError = std::sqrt(statError)/bkgYield;

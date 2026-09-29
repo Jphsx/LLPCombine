@@ -1,5 +1,6 @@
 #include "BuildFitInput.h"
 #include <TSystem.h>
+#include <regex>
 
 BuildFitInput::BuildFitInput(){
 	std::cout<<"Now just between us girls.... \n";
@@ -84,27 +85,60 @@ cout << "subkey " << subkey << endl;
 
 void BuildFitInput::LoadSig_KeyValue( std::string key, stringlist siglist, double Lumi){
 	//RDF df("kuSkimTree", bkglist);
+	std::cout << "sigkey " << key << std::endl;
+
+	//use lumi dict from analysis config if lumi not specified
+	std::string yr = "";
+	if(key.find("_") != string::npos){
+		yr = key.substr(key.find("_")+1);
+	}
+	if(yr != ""){
+		if((_cfg.sigLumi.find(yr) != _cfg.sigLumi.end())){
+			std::cout << "yr " << yr << " lumi " << _cfg.sigLumi[yr] << std::endl;
+			Lumi = _cfg.sigLumi[yr];	
+		}
+		else{
+			cout << "Lumi for year " << yr << " not specified in yaml. Setting to overall luminosity " << Lumi << endl;
+		}
+	}
+	std::cout << "lumi " << Lumi << std::endl;
+	
 	for( unsigned int i=0; i< siglist.size(); i++){//signal keys are vector doubles (mode, mgo, mn2, mn1, ctau)
 		//std::string subkey = key+"_"+std::to_string(i);//1 file per?
 		std::string subkey = BFTool::GetSignalTokens( siglist[i]);
-		if(gSystem->AccessPathName(siglist[i].c_str())){
-			cout << "File " << siglist[i] << " not found. Skipping..." << endl;
-			return;
-		}
-
-
+		if(yr != "")
+			subkey += "_"+yr;
+		//std::cout << "siglist[i] " << siglist[i] << " subkey " << subkey << std::endl;
+		std::cout << "subkey " << subkey << std::endl;
 		//also make the event weight branch here while we have the correct bkg file
 		int ntot{};
 		float xsec{};
 		//float sums =0.;
 		TFile* f = TFile::Open(siglist[i].c_str());
+		if(!f || f->IsZombie()){
+			cout << "Signal file " << siglist[i] << " could not be opened. Skipping..." << endl;
+			if(f) f->Close();
+			continue;
+		}
 		TTree* configTree = (TTree*)f->Get("kuSkimConfigTree");
+		if(!configTree){
+			cout << "Signal file " << siglist[i] << " has no kuSkimConfigTree. Skipping..." << endl;
+			f->Close();
+			continue;
+		}
 		configTree->SetBranchAddress("nTotEvts", &ntot);//cross section is genweight!!
 		configTree->SetBranchAddress("sCrossSection", &xsec);
+		int mctype = 0;
+		if(configTree->GetBranch("sMCType")) configTree->SetBranchAddress("sMCType", &mctype);
 		configTree->GetEntry(0);
+		if(mctype == 2){
+			fastsim_sig_keys.insert(subkey);
+			cout << "sample " << subkey << " is FastSim (sMCType == 2): Trigger_* requirements will be dropped" << endl;
+		}
 		//catch for signal samples with bad weights
 		if(ntot == 0){
 			cout << "sample " << subkey << " has bad weights. Skipping..." << endl;
+			f->Close();
 			continue;
 		}
 		
@@ -119,16 +153,15 @@ void BuildFitInput::LoadSig_KeyValue( std::string key, stringlist siglist, doubl
             
                 //ntot = sums;
 
-		std::cout<<"calculated total ntot "<< ntot<<"\n";
+		//std::cout<<"calculated total ntot "<< ntot<<"\n";
 		double wt{};
 		wt = xsec*1000.*Lumi/((float)ntot);
 		//save the weight for error propagation later
 		sig_evtwt[subkey] = wt;
-		std::cout<<"subkey:"<< subkey<< "wt:"<<wt<<"\n";
+		//std::cout<<"subkey:"<< subkey<< "wt:"<<wt<<"\n";
 		//#auto tempdf = df.Define("evtwt", std::to_string(wt));
 		auto tempdf = df.Define("evtwt", "evtFillWgt * "+std::to_string(Lumi) );
 		auto tempdf2 = tempdf.Define("evtwt2", "evtwt*evtwt");
-
 
 		//cast to RNode with uniqueptr
 		rdf_SigDict[subkey] = std::make_unique<RNode>(tempdf2);
@@ -136,13 +169,13 @@ void BuildFitInput::LoadSig_KeyValue( std::string key, stringlist siglist, doubl
 		
 	}
 }
-void BuildFitInput::BuildReweights(const AnalysisConfig& c){
+void BuildFitInput::BuildReweights(){
 	//this will only ever be applied to signal models
 	//build decay reweight branch
-	double Z_old = c.sampleZrate;
-	double Z_new = c.targetZrate;
-	double G_old = c.sampleGrate;
-	double G_new = c.targetGrate;
+	double Z_old = _cfg.sampleZrate;
+	double Z_new = _cfg.targetZrate;
+	double G_old = _cfg.sampleGrate;
+	double G_new = _cfg.targetGrate;
 	for (const auto& dfkey :rdf_SigDict){
 		if (Z_old != -1){
         	std::cout<<"building decay weight for key:"<< dfkey.first <<"\n";
@@ -158,8 +191,8 @@ void BuildFitInput::BuildReweights(const AnalysisConfig& c){
 		}
     }
 	
-	float tau_old = float(c.sampleLifetime);
-   	float tau_new = float(c.targetLifetime);
+	float tau_old = float(_cfg.sampleLifetime);
+   	float tau_new = float(_cfg.targetLifetime);
 	//build a reweight branch for each xa and xb lifetime, do it inefficiently by looping and replacing rdf for a then reloop and do b
 	for (const auto& dfkey :rdf_SigDict){
 		if (tau_old != -1 ){
@@ -289,8 +322,12 @@ void BuildFitInput::FilterRegions( std::string filterName, std::string filterCut
 		bkg_filtered_dataframes[ std::make_pair(it.first,filterName) ] = std::make_unique<RN> ( (it.second)->Filter(filterCuts, filterName) );
 	}
 	std::cout<<"Building sig nodes with "<< filterName <<"\n";
+	//FastSim ntuples carry no HLT decision (all Trigger_* false), so treat every Trigger_* term as passing
+	static const std::regex trigger_re("\\bTrigger_\\w+\\b");
+	const std::string fastsimCuts = std::regex_replace(filterCuts, trigger_re, "true");
 	for (const auto& it : rdf_SigDict){
-		sig_filtered_dataframes[ std::make_pair(it.first,filterName) ] = std::make_unique<RN> ( (it.second)->Filter(filterCuts, filterName) );
+		const std::string& cuts = fastsim_sig_keys.count(it.first) ? fastsimCuts : filterCuts;
+		sig_filtered_dataframes[ std::make_pair(it.first,filterName) ] = std::make_unique<RN> ( (it.second)->Filter(cuts, filterName) );
 	}
 	std::cout<<"Building data nodes with "<< filterName <<"\n";
 	for (const auto& it : rdf_DataDict){
@@ -327,6 +364,7 @@ countmap BuildFitInput::CountRegions(nodemap& filtered_df){
 	countmap countResults{};
 	for (const auto& it : filtered_df){
 		ROOT::RDF::RResultPtr<long long unsigned int> count_result = (it.second)->Count();
+//std::cout << "doing counts for " <<  it.first.first << " " << it.first.second << std::endl;
 		countResults[std::make_pair( it.first.first, it.first.second) ] = count_result;		
 	}
 	return countResults;
@@ -418,9 +456,9 @@ std::map<std::string, Process*> BuildFitInput::CombineBkgs( std::map<std::string
 		combinedBkgProcs[procname]->Add(bkgProcs[it.first]);
 		
 	}
-	for( const auto& it: combinedBkgProcs){//loop back through and sqrt the errors
-		combinedBkgProcs[it.first]->FixError();
-	}
+	//for( const auto& it: combinedBkgProcs){//loop back through and sqrt the errors
+	//	combinedBkgProcs[it.first]->FixError();
+	//}
 	return combinedBkgProcs;
 }
 
@@ -429,6 +467,78 @@ void BuildFitInput::CreateBin(std::string binname){
 	bin->binname = binname;
 	analysisbins[binname] = bin;
 }
+
+bool BuildFitInput::IsKnownYearToken(const std::string& token) const{
+	for(const auto& runyr : _runyr_map){
+		const std::vector<std::string>& years = runyr.second;
+		if(std::find(years.begin(), years.end(), token) != years.end())
+			return true;
+	}
+	return false;
+}
+
+BuildFitInput::BinSplitInfo BuildFitInput::ResolveBinSplit(const std::string& binname) const{
+	std::size_t split_pos = binname.rfind("_");
+	if(split_pos == std::string::npos || split_pos + 1 >= binname.size())
+		return {};
+
+	std::string suffix = binname.substr(split_pos + 1);
+	if(_runyr_map.find(suffix) != _runyr_map.end())
+		return {BinSplitMode::Run, suffix};
+	if(IsKnownYearToken(suffix))
+		return {BinSplitMode::Year, suffix};
+	return {};
+}
+
+std::string BuildFitInput::DataYearToken(const std::string& procname) const{
+	if(procname.size() < 2)
+		return "";
+	std::string year = procname.substr(procname.size() - 2);
+	return IsKnownYearToken(year) ? year : "";
+}
+
+std::string BuildFitInput::SignalYearToken(const std::string& procname) const{
+	std::size_t split_pos = procname.rfind("_");
+	if(split_pos == std::string::npos || split_pos + 1 >= procname.size())
+		return "";
+	std::string year = procname.substr(split_pos + 1);
+	return IsKnownYearToken(year) ? year : "";
+}
+
+std::string BuildFitInput::StripSignalYearToken(const std::string& procname, const std::string& proc_year) const{
+	if(proc_year.empty())
+		return procname;
+	std::size_t split_pos = procname.rfind("_");
+	if(split_pos == std::string::npos)
+		return procname;
+	return procname.substr(0, split_pos);
+}
+
+bool BuildFitInput::ShouldAddProcessToBin(const BinSplitInfo& split, const std::string& proc_year) const{
+	if(split.mode == BinSplitMode::Inclusive)
+		return true;
+	if(proc_year.empty())
+		return false;
+	if(split.mode == BinSplitMode::Year)
+		return split.suffix == proc_year;
+
+	auto runyr = _runyr_map.find(split.suffix);
+	if(runyr == _runyr_map.end())
+		return false;
+	const std::vector<std::string>& years = runyr->second;
+	return std::find(years.begin(), years.end(), proc_year) != years.end();
+}
+
+void BuildFitInput::AddOrMergeProcess(std::map<std::string, Process*>& processes, Process* proc) const{
+	if(processes.count(proc->procname) > 0){
+		processes[proc->procname]->Add(proc);
+		delete proc;
+	}
+	else{
+		processes.insert({proc->procname, proc});
+	}
+}
+
 void BuildFitInput::ConstructBkgBinObjects( countmap countResults, summap sumResults, errormap errorResults ){
 	for( const auto& it: countResults ){
 		proc_cut_pair cutpairkey = it.first;
@@ -444,7 +554,38 @@ void BuildFitInput::ConstructBkgBinObjects( countmap countResults, summap sumRes
 	}	
 	
 }
+
 void BuildFitInput::AddDataToBinObjects( countmap countResults, summap sumResults, errormap errorResults, std::map<std::string, Bin*>& analysisbins){
+	//std::string binnametest = "Ch10CReq1PhoTightIsoPromptBin00";
+	for(const auto& it: analysisbins ){
+		std::string binname = it.first;
+		analysisbins[binname]->totalData.first = "data";
+		analysisbins[binname]->totalData.second = new Process("data");
+	}
+	for( const auto& it: countResults ){
+		proc_cut_pair cutpairkey = it.first;
+		std::string procname = it.first.first;
+		std::string binname = cutpairkey.second;
+		//cout << "procname " << procname << " binname " << binname << " cutpairkey " << cutpairkey.first << " " << cutpairkey.second << endl;
+		//if(binname.find(binnametest) != std::string::npos)
+		//	std::cout << "procname " << procname << " binname " << binname << std::endl;
+		BinSplitInfo split = ResolveBinSplit(binname);
+		std::string proc_year = DataYearToken(procname);
+		if(!ShouldAddProcessToBin(split, proc_year))
+			continue;
+
+		Process* thisproc = nullptr;
+		if(!_unblind && (binname.find("SR") != string::npos))
+			thisproc = new Process( procname, 1e-12, 1e-12, 1e-12);
+		else
+			thisproc = new Process( procname, *countResults[cutpairkey], *sumResults[cutpairkey], errorResults[cutpairkey]);
+		analysisbins[binname]->totalData.second->Add(thisproc);
+		AddOrMergeProcess(analysisbins[binname]->dataProcs, thisproc);
+	}
+	
+}
+/*
+void BuildFitInput::AddCombinedDataToBinObjects( countmap countResults, summap sumResults, errormap errorResults, std::map<std::string, Bin*>& analysisbins){
 	for(const auto& it: analysisbins ){
 		std::string binname = it.first;
 		analysisbins[binname]->data.first = "data";
@@ -469,18 +610,36 @@ void BuildFitInput::AddDataToBinObjects( countmap countResults, summap sumResult
 		}
 	}
 }
-void BuildFitInput::AddSigToBinObjects( countmap countResults, summap sumResults, errormap errorResults, std::map<std::string, Bin*>& analysisbins){
+*/
+void BuildFitInput::AddMCClosureDataToBinObjects(std::map<std::string, Bin*>& analysisbins){
 	for(const auto& it: analysisbins ){
 		std::string binname = it.first;
-		for( const auto& it2: countResults){
-
-			proc_cut_pair cutpairkey = it2.first;
-			if( binname != cutpairkey.second ) continue;
-			std::string binname2 = it2.first.second;
-			std::string procname = it2.first.first;
-			Process* thisproc = new Process( procname, *countResults[cutpairkey], *sumResults[cutpairkey], errorResults[cutpairkey]);
-			analysisbins[binname]->signals.insert({procname, thisproc} );
+		analysisbins[binname]->totalData.first = "totalData";
+		analysisbins[binname]->totalData.second = new Process("totalData");
+		for(const auto& it2: analysisbins[binname]->combinedProcs){
+			analysisbins[binname]->totalData.second->Add(it2.second);
 		}
+		//analysisbins[binname]->totalData.second->FixError();
+	}
+}
+void BuildFitInput::AddSigToBinObjects( countmap countResults, summap sumResults, errormap errorResults, std::map<std::string, Bin*>& analysisbins){
+	for( const auto& it: countResults ){
+		proc_cut_pair cutpairkey = it.first;
+		std::string binname = cutpairkey.second;
+		if(analysisbins.count(binname) == 0)
+			continue;
+
+		std::string procname = it.first.first;
+		std::string proc_year = SignalYearToken(procname);
+		BinSplitInfo split = ResolveBinSplit(binname);
+		if(!ShouldAddProcessToBin(split, proc_year))
+			continue;
+
+		if(split.mode == BinSplitMode::Inclusive || split.mode == BinSplitMode::Run)
+			procname = StripSignalYearToken(procname, proc_year);
+
+		Process* thisproc = new Process( procname, *countResults[cutpairkey], *sumResults[cutpairkey], errorResults[cutpairkey]);
+		AddOrMergeProcess(analysisbins[binname]->signals, thisproc);
 	}
 }
 void BuildFitInput::PrintBins(int verbosity){
@@ -497,7 +656,7 @@ void BuildFitInput::PrintBins(int verbosity){
 				std::cout<<"   "<< it2.second->procname<<" "<<it2.second->nevents <<" "<<it2.second->wnevents<<" "<<it2.second->staterror<<"\n";
 			}
 			//data - if specified	
-			if(it.second->data.second != nullptr) std::cout<<"   "<< it.second->data.second->procname<<" "<<it.second->data.second->nevents <<" "<<it.second->data.second->wnevents<<" "<<it.second->data.second->staterror<<"\n";
+			if(it.second->totalData.second != nullptr) std::cout<<"   "<< it.second->totalData.second->procname<<" "<<it.second->totalData.second->nevents <<" "<<it.second->totalData.second->wnevents<<" "<<it.second->totalData.second->staterror<<"\n";
 		}
 		if(verbosity >= 1){
 			for(const auto& it2: it.second->signals){
@@ -513,5 +672,3 @@ void BuildFitInput::PrintBins(int verbosity){
 
 	
 		
-
-

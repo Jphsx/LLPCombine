@@ -5,6 +5,8 @@
 #include <iostream>
 #include <filesystem> // Required for std::filesystem
 #include <cstdlib>    // Required for std::system
+#include <exception>
+#include <stdexcept>
 #include "ConfigParser.h"
 #include "ArgumentParser.h"
 using std::cout;
@@ -71,47 +73,62 @@ int main(int argc, char* argv[]){
 		return -1;
 	}
 
-	//TODO - automate fit config writing
-	JSONFactory* j = new JSONFactory(input_json);
-	std::vector<std::string> signals = j->GetSigProcs();
+	string current_signal;
+	try{
+		JSONFactory* j = new JSONFactory(input_json);
+		std::vector<std::string> signals = j->GetSigProcs();
 
 	///don't run over this signal if its not in the BFI
 	//if(find(signals.begin(), signals.end(), signal) == signals.end())
 	//	return -1;
 
-	std::string datacard_dir = "datacards";
-	long unsigned int nsig = signals.size();
-	if(crfit)
-		nsig = 1;
-	for( long unsigned int i=0; i<nsig;i++){
-		BuildFit BF(inconfig);
-		string fitname = BF.GetFitName();
-		std::cout << "fitname " << fitname << std::endl;
-		if(fitname.size() > 1)
-			datacard_dir += "_"+fitname;
-		if(extra_name.size() > 1)
-			datacard_dir += "_"+extra_name;
-		datacard_dir += "/"+signals[i];
-		cout << "Datacard dir " << datacard_dir << endl;
-		std::filesystem::path dir_path = datacard_dir;
-		//recreate datacards
-		std::filesystem::remove_all(dir_path);
-		std::filesystem::create_directories( datacard_dir );
-		cout << "sig " << signals[i] << endl;
-		//one BF instances per signal point - creates one CH object and therefore one datacard per signal point
-		BF.PrepFit(j, signals[i]);
-		//do fit - function won't do anything if their corresponding section in the config yaml isn't filled
-		BF.BuildShapeTransferFit();
-		BF.BuildABCDFit();
-		BF.SetObservations(); 
-		BF.DoSystematics();
-		//write datacard
-		BF.WriteDatacard(datacard_dir, true);
-		datacard_dir = "datacards";
-
-		//needs to come after fit initialization because asimov observations are set differently
-		//depending on which fit is run (for now)
-		//BF.BuildABCDFitChannelToChannel();
+		std::string datacard_dir = "datacards";
+		long unsigned int nsig = signals.size();
+		if(crfit)
+			nsig = 1;
+		if(nsig > signals.size()){
+			throw std::runtime_error("requested CR fit, but no signal processes were found in the input JSON");
+		}
+		for( long unsigned int i=0; i<nsig;i++){
+			current_signal = signals[i];
+			BuildFit BF(inconfig);
+			string fitname = BF.GetFitName();
+			std::cout << "fitname " << fitname << std::endl;
+			if(fitname.size() > 1)
+				datacard_dir += "_"+fitname;
+			if(extra_name.size() > 1)
+				datacard_dir += "_"+extra_name;
+			datacard_dir += "/"+current_signal;
+			cout << "Datacard dir " << datacard_dir << endl;
+			std::filesystem::path dir_path = datacard_dir;
+			//recreate datacards
+			std::filesystem::remove_all(dir_path);
+			std::filesystem::create_directories( datacard_dir );
+			cout << "sig " << current_signal << endl;
+			//one BF instances per signal point - creates one CH object and therefore one datacard per signal point
+			BF.PrepFit(j, current_signal);
+			//do fit - function won't do anything if their corresponding section in the config yaml isn't filled
+			BF.BuildShapeTransferFit();
+			BF.BuildABCDFit();
+			//highDm channel names
+			BF.AddTemplateProcessABCD("Ch17CRgeq1PhoTightIsoEarly","Ch7CRgeq1PhoNotBHEarlyBin");
+			//compresssed channel names
+			BF.AddTemplateProcessABCD("DelPho_TightIsoEarlyCR","DelPho_NotBHEarlyCR");
+			BF.SetObservations(); 
+			BF.DoSystematics();
+			//write datacard
+			BF.WriteDatacard(datacard_dir, true);
+			datacard_dir = "datacards";
+		}
+	}
+	catch(const std::exception& e){
+		std::cerr << "\nBF.x failed while building datacards" << std::endl;
+		std::cerr << "  input JSON: " << input_json << std::endl;
+		std::cerr << "  fit config: " << inconfig << std::endl;
+		if(current_signal.size() > 0)
+			std::cerr << "  signal: " << current_signal << std::endl;
+		std::cerr << "  error: " << e.what() << std::endl;
+		return 2;
 	}
 
 	/*

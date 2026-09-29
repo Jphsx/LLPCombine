@@ -4,6 +4,16 @@
 #include <sstream>
 #include <algorithm>
 #include <cstring>
+#include <cctype>
+
+namespace {
+bool ParseBool(const std::string& value) {
+    std::string lowered = value;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                   [](unsigned char c){ return std::tolower(c); });
+    return lowered == "true" || lowered == "1" || lowered == "yes";
+}
+}
 
 // Simple YAML parser implementation
 // For production use, consider yaml-cpp library
@@ -258,6 +268,7 @@ private:
                     }
                     
                     std::string full_key = section + (subsection.empty() ? "" : "." + subsection) + "." + key;
+                    //std::cout << "full_key " << full_key << std::endl;
                     values[full_key] = value;
                 }
             }
@@ -285,6 +296,8 @@ void ConfigParser::SetDefaults() {
 	config_.sampleGrate = -1;
 	config_.targetZrate = -1;
 	config_.targetGrate = -1;
+    config_.mc_closure = false;
+    config_.mc_closure_background_mode = "combined";
 }
 
 bool ConfigParser::LoadConfig(const std::string& config_file) {
@@ -331,7 +344,7 @@ bool ConfigParser::LoadYAML(const std::string& config_file) {
 	if ( parser.values.count("decayWeights.targetGrate")){
         config_.targetGrate = std::stod(parser.values["decayWeights.targetGrate"]);
     }    
-    
+
     // Parse samples
     if (parser.lists.count("samples.backgrounds")) {
         config_.backgrounds = parser.lists["samples.backgrounds"];
@@ -340,42 +353,125 @@ bool ConfigParser::LoadYAML(const std::string& config_file) {
         config_.signals = parser.lists["samples.signals"];
     }
     if (parser.lists.count("samples.data")) {
-	config_.data = parser.lists["samples.data"];
+    	config_.data = parser.lists["samples.data"];
     }
-    
-    // Parse bins
-    for (const auto& pair : parser.lists) {
-        if (pair.first.find("bins.") == 0) {
-            std::string full_key = pair.first;
-            std::string bin_name;
-            
-            // Extract bin name from the key
-            size_t bins_pos = full_key.find("bins.");
-            if (bins_pos != std::string::npos) {
-                std::string remainder = full_key.substr(bins_pos + 5); // Remove "bins."
-                size_t dot_pos = remainder.find('.');
-                
-                if (dot_pos != std::string::npos) {
-                    // Key like "bins.single_bin.cuts" - not used in our format
-                    continue;
-                } else {
-                    // Key like "bins.single_bin" - this is our cuts list
-                    bin_name = remainder;
-                }
+    if (parser.values.count("samples.split")) {
+    	config_.sampleSplit = parser.values["samples.split"];
+    }
+    else{
+    	config_.sampleSplit = "none";
+    }
+ 
+    //get years of specified data
+    std::vector<std::string> datayrs;
+    for(auto data : config_.data){
+        datayrs.push_back( data.substr(data.size() - 2) );
+    }
+
+ 
+    //get years of specified signals
+    std::vector<std::string> sigyrs;
+    for (auto sig : config_.signals){
+	if(sig.find("_") != std::string::npos)
+        sigyrs.push_back( sig.substr(sig.find("_")+1) );
+    }
+ 
+    //parse signal lumis
+    double totsiglumi = 0;
+    for (const auto& pair : parser.values) {
+        if (pair.first.find("sampleLumis.") == 0){
+            //if want to change what the year key is or suffix is for sig_YEAR, can change that parsing here
+            std::string year = pair.first.substr(pair.first.find(".")+3);
+            //make sure year in lumikey is included in signal list
+            if(std::count(sigyrs.begin(), sigyrs.end(), year) == 0){
+                std::cout << "Signal for year " << year << " not specified. Not setting lumi." << std::endl;
+                continue; 
             }
-            
-            if (!bin_name.empty()) {
-                BinConfig bin_config;
-                bin_config.name = bin_name;
-                bin_config.cuts = pair.second;
+            config_.sigLumi[year] = std::stod(pair.second);
+	        totsiglumi += std::stod(pair.second);		
+        }
+    }
+    //if 1+ years specified in lumi dict and 2+ years specified in signal, but their total lumi doesnt add up to the overall lumi, throw warning
+    //if no years specified, set sig lumi to overall lumi (same for only 1 year)
+    if((config_.sigLumi.size() > 0 || sigyrs.size() > 1) && totsiglumi != config_.luminosity){
+	std::string proceed;
+        std::cout << "WARNING: Set total luminosity to " << config_.luminosity << " but specified signal year-by-year luminosity is " << totsiglumi << " total." << std::endl;
+        std::cout << "Are you sure you want to proceed? y/n" << std::endl;
+        std:: cin >> proceed;
+        if(proceed != "y")
+                return false;
+    }
+
+    if (parser.values.count("mc_closure.enabled")) {
+        config_.mc_closure = ParseBool(parser.values["mc_closure.enabled"]);
+    }
+    if (parser.values.count("mc_closure.background_mode")) {
+        config_.mc_closure_background_mode = parser.values["mc_closure.background_mode"];
+        std::transform(config_.mc_closure_background_mode.begin(), config_.mc_closure_background_mode.end(),
+                       config_.mc_closure_background_mode.begin(),
+                       [](unsigned char c){ return std::tolower(c); });
+    }
+    //check split type for bins before making them
+    if(std::find(config_.splitTypes.begin(), config_.splitTypes.end(), config_.sampleSplit) == config_.splitTypes.end()){
+            std::cerr << "Error: sampleSplit type " << config_.sampleSplit << " is not valid. Please replace with one of the following:";
+            for(auto split : config_.splitTypes)
+                std::cerr << " " << split;
+            std::cerr << std::endl;
+            return false; 
+    }
+   
+
+    std::vector<std::string> binsplits;
+    if(config_.sampleSplit == config_.splitTypes[1]){ // year split
+        //sorting required for set intersection
+        std::sort(datayrs.begin(), datayrs.end());
+        std::sort(sigyrs.begin(), sigyrs.end());
+        std::set_intersection(datayrs.begin(), datayrs.end(), sigyrs.begin(), sigyrs.end(),std::back_inserter(binsplits));
+    }
+    else if(config_.sampleSplit == config_.splitTypes[2]){ // run split
+        binsplits = {"Run2","Run3"};
+    }
+    else{ // no split
+        binsplits.push_back("");
+    }
+ 
+    // Parse bins
+    for(auto binsplit : binsplits){
+        for (const auto& pair : parser.lists) {
+            if (pair.first.find("bins.") == 0) {
+                std::string full_key = pair.first;
+                std::string bin_name;
                 
-                // Look for description
-                std::string desc_key = "bins." + bin_name + ".description";
-                if (parser.values.count(desc_key)) {
-                    bin_config.description = parser.values[desc_key];
+                // Extract bin name from the key
+                size_t bins_pos = full_key.find("bins.");
+                if (bins_pos != std::string::npos) {
+                    std::string remainder = full_key.substr(bins_pos + 5); // Remove "bins."
+                    size_t dot_pos = remainder.find('.');
+                    
+                    if (dot_pos != std::string::npos) {
+                        // Key like "bins.single_bin.cuts" - not used in our format
+                        continue;
+                    } else {
+                        // Key like "bins.single_bin" - this is our cuts list
+                        bin_name = remainder;
+                    }
                 }
+                if(binsplit != "")
+                    bin_name += "_"+binsplit;
                 
-                config_.bins.push_back(bin_config);
+                if (!bin_name.empty()) {
+                    BinConfig bin_config;
+                    bin_config.name = bin_name;
+                    bin_config.cuts = pair.second;
+                    
+                    // Look for description
+                    std::string desc_key = "bins." + bin_name + ".description";
+                    if (parser.values.count(desc_key)) {
+                        bin_config.description = parser.values[desc_key];
+                    }
+                    
+                    config_.bins.push_back(bin_config);
+                }
             }
         }
     }
@@ -385,10 +481,10 @@ bool ConfigParser::LoadYAML(const std::string& config_file) {
         config_.verbosity = std::stoi(parser.values["options.verbosity"]);
     }
     if (parser.values.count("options.parallel")) {
-        config_.parallel = (parser.values["options.parallel"] == "true");
+        config_.parallel = ParseBool(parser.values["options.parallel"]);
     }
     if (parser.values.count("options.dry_run")) {
-        config_.dry_run = (parser.values["options.dry_run"] == "true");
+        config_.dry_run = ParseBool(parser.values["options.dry_run"]);
     }
     
     return ValidateConfig();
@@ -434,6 +530,12 @@ void ConfigParser::PrintConfig() const {
     for (const auto& dat : config_.data) {
 	std::cout << dat << " ";
     }
+    std::cout << std::endl;
+    std::cout << "MC closure: " << (config_.mc_closure ? "true" : "false");
+    if (config_.mc_closure) {
+        std::cout << " (" << config_.mc_closure_background_mode << " backgrounds)";
+    }
+    std::cout << std::endl;
 
     std::cout << "\nAnalysis Bins:" << std::endl;
     for (const auto& bin : config_.bins) {
@@ -455,6 +557,18 @@ bool ConfigParser::ValidateConfig() const {
     
     if (config_.backgrounds.empty()) {
         std::cerr << "Warning: No background samples specified" << std::endl;
+    }
+
+    if (config_.mc_closure) {
+        if (config_.backgrounds.empty()) {
+            std::cerr << "Error: MC closure requires at least one background sample" << std::endl;
+            return false;
+        }
+        if (config_.mc_closure_background_mode != "combined" &&
+            config_.mc_closure_background_mode != "separate") {
+            std::cerr << "Error: mc_closure.background_mode must be 'combined' or 'separate'" << std::endl;
+            return false;
+        }
     }
     
     if (config_.bins.empty()) {
