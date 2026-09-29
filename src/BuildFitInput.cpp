@@ -1,5 +1,6 @@
 #include "BuildFitInput.h"
 #include <TSystem.h>
+#include <regex>
 
 BuildFitInput::BuildFitInput(){
 	std::cout<<"Now just between us girls.... \n";
@@ -127,7 +128,13 @@ void BuildFitInput::LoadSig_KeyValue( std::string key, stringlist siglist, doubl
 		}
 		configTree->SetBranchAddress("nTotEvts", &ntot);//cross section is genweight!!
 		configTree->SetBranchAddress("sCrossSection", &xsec);
+		int mctype = 0;
+		if(configTree->GetBranch("sMCType")) configTree->SetBranchAddress("sMCType", &mctype);
 		configTree->GetEntry(0);
+		if(mctype == 2){
+			fastsim_sig_keys.insert(subkey);
+			cout << "sample " << subkey << " is FastSim (sMCType == 2): Trigger_* requirements will be dropped" << endl;
+		}
 		//catch for signal samples with bad weights
 		if(ntot == 0){
 			cout << "sample " << subkey << " has bad weights. Skipping..." << endl;
@@ -315,8 +322,12 @@ void BuildFitInput::FilterRegions( std::string filterName, std::string filterCut
 		bkg_filtered_dataframes[ std::make_pair(it.first,filterName) ] = std::make_unique<RN> ( (it.second)->Filter(filterCuts, filterName) );
 	}
 	std::cout<<"Building sig nodes with "<< filterName <<"\n";
+	//FastSim ntuples carry no HLT decision (all Trigger_* false), so treat every Trigger_* term as passing
+	static const std::regex trigger_re("\\bTrigger_\\w+\\b");
+	const std::string fastsimCuts = std::regex_replace(filterCuts, trigger_re, "true");
 	for (const auto& it : rdf_SigDict){
-		sig_filtered_dataframes[ std::make_pair(it.first,filterName) ] = std::make_unique<RN> ( (it.second)->Filter(filterCuts, filterName) );
+		const std::string& cuts = fastsim_sig_keys.count(it.first) ? fastsimCuts : filterCuts;
+		sig_filtered_dataframes[ std::make_pair(it.first,filterName) ] = std::make_unique<RN> ( (it.second)->Filter(cuts, filterName) );
 	}
 	std::cout<<"Building data nodes with "<< filterName <<"\n";
 	for (const auto& it : rdf_DataDict){

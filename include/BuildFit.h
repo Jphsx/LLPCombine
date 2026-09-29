@@ -62,8 +62,10 @@ class BuildFit{
 		void SetObservations();
 		void SetSignalRates();
 		void BuildShapeTransferFit();
+		void BuildShapeTransferFit(const string& split);
 		void BuildABCDFitSingleBin();
 		void BuildABCDFit();
+		void BuildABCDFit(const string& split);
 		void DoSystematics();
 		void WriteDatacard(string datacard_dir, bool verbose = false);
 		double SumObs(const string& bin){
@@ -98,15 +100,29 @@ class BuildFit{
 		void BuildMultiChannel9bin(JSONFactory* j, std::string signalPoint, std::string datacard_dir, channelmap channelMap);
 
 		void AddTemplateProcessABCD(string src_ch, string target_ch, double tf = -999, string proc = "");
+		void AddTemplateProcessABCD(string src_ch, string target_ch, string split, double tf = -999, string proc = "");
 
 		std::vector<std::string> sigkeys = { "gogoZ", "gogoG", "gogoGZ", "sqsqZ", "sqsqG", "sqsqGZ" };
-		std::vector<std::string> datakeys = { "MET18", "DisplacedJet18", "data", "MET23","MET22"};
+		//aggregate data key (BFI sums every data era in a bin into it); the only key used as data-driven bkg
+		std::vector<std::string> datakeys = { "data" };
+		//per-era data keys (MET16, MET23, ...) that BFI writes next to the aggregate; never a bkg process
+		std::vector<std::string> dataeraprefixes = { "MET", "JetMET", "DisplacedJet" };
+		bool IsDataKey(const std::string& key) const{
+			for(const auto& k : datakeys)
+				if(key == k) return true;
+			return false;
+		}
+		bool IsDataEraKey(const std::string& key) const{
+			for(const auto& p : dataeraprefixes)
+				if(key.compare(0, p.size(), p) == 0) return true;
+			return false;
+		}
 
 		string GetFitName(){ return _fitname; }
 
 		//get process for bin (includes binidx)
 		string getProcess(string crbin){
-			string crch = crbin.substr(0, crbin.size() - 2);
+			string crch = getChannel(crbin);
 			for(auto it = _abcd_ch_ass.begin(); it != _abcd_ch_ass.end(); it++){
 				string srch = it->first;
 				for(auto iit = _abcd_ch_ass[srch].begin(); iit != _abcd_ch_ass[srch].end(); iit++){
@@ -139,7 +155,6 @@ class BuildFit{
 		json _yields;
 		std::set<string> _bins_superset;
 		std::set<string> _bins_superset_abcd;
-		std::set<string> _bins_superset_shape;
 		string _fitname;
 		string _signalPoint;
 		map<string, string> _shape_anchor_bins;
@@ -154,19 +169,41 @@ class BuildFit{
 		double getTotYield(string bin){
 			double bin_tot_yield = 0;
                         for(auto proc : _bkgprocs){
-				//std::cout << "getTotYield - bin " << bin << " proc " << proc << std::endl;
+				std::cout << "getTotYield - bin " << bin << " proc " << proc << std::endl;
                                 bin_tot_yield += GetYieldValueOrZero(bin, proc, 1, "getTotYield");
                         }
 			return bin_tot_yield;
 		}
 
-		string GetBuoyBin(string buoych){
-			return buoych.replace(buoych.find("SR"),2,"CR")+_shape_anchor_bins[buoych];
+		string GetBuoyBin(string buoych, string split = ""){
+			string bin = buoych.replace(buoych.find("SR"),2,"CR")+_shape_anchor_bins[buoych];
+			if(split != "")
+				return bin+"_"+split;
+			else
+				return bin;
 		}
 
 		//get bin indices - should be last two characters based on naming convention
 		string getBinIdx(string binname){
-			return binname.substr(binname.size() - 2);
+			int breakidx;
+			if(binname.find("_") != string::npos)
+				breakidx = binname.find("_");
+			else
+				breakidx = binname.size();
+			return binname.substr(breakidx - 2, 2);
+		}
+
+		string getChannel(string binname){
+			string binidx = getBinIdx(binname);
+			return binname.substr(0,binname.find(binidx));
+		}
+
+		string recombineBinSplitName(string binname, string split){
+			if(split == "")
+				return binname;
+			if(binname.find(split) != string::npos)
+				return binname;
+			return binname+"_"+split;
 		}
 
 		void sumBkgs();
@@ -178,7 +215,7 @@ class BuildFit{
 		double GuardRateParamInit(double value) const;
 		std::string ResolveRateParamName(const std::string& name, const std::string& bin, const std::string& proc) const;
 		void SetRateParamRange(const std::string& name, const std::vector<std::string>& bins, const std::vector<std::string>& procs);
-		void AddRateParam(const std::vector<std::string>& procs, const std::vector<std::string>& bins, const std::string& name, double init);
+		void AddRateParam(const std::vector<std::string>& procs, const std::vector<std::string>& bins, const std::string& name, double init, string split);
 		void BuildSplitBins(const vector<string>& splits);
 		ch::Process create_proc(string mass, string analysis, string era, string channel, string proc, pair<int, string> bininfo, bool signal, double rate){
 			ch::Process newproc;

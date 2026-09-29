@@ -2,6 +2,7 @@
 #define BFI_H
 #include <ROOT/RDataFrame.hxx>
 #include <map>
+#include <set>
 #include <algorithm>
 #include <iostream>
 #include <vector>
@@ -46,7 +47,11 @@ class BuildFitInput{
 	map< std::string, double > bkg_evtwt{};
 	map< std::string, double > data_evtwt{};
 	map< std::string, double > sig_evtwt{};
-	
+
+	//signal keys whose skim has sMCType == 2 (FastSim): no HLT in the ntuples, so every
+	//Trigger_* branch is false; FilterRegions drops the trigger requirement for these
+	std::set<std::string> fastsim_sig_keys{};
+
 	//nodemap := (sig/bkg keyname, cut region keyname), resultptr
 	nodemap bkg_filtered_dataframes;//these are the analysis bins constructed from filters
 	nodemap sig_filtered_dataframes;

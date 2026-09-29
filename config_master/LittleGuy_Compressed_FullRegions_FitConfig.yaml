@@ -3,10 +3,10 @@
 # Ch 1 (SVonly):      shape_transfer  — anchor SVonly_AnchorCR predicts SVonly_SR
 # Ch 2 (DelPho):      ABCD_fit        — 4-cell timing x BH-score, 2-bin RISR [0.6, 0.75) and >= 0.75
 # Ch 3 (Eq2Pho):      shape_transfer  — Eq2Pho_MedIsoCR predicts Eq2Pho_TightIsoSR
-# Ch 4 (MixDel):      ABCD_fit        — 4-cell timing x BH-score + incl. SV dxySig, 2-bin RISR [0.6, 0.75) and >= 0.75
+# Ch 4 (MixDel):      shape_transfer  — MixDel_AnchorCR predicts MixDel_SR
 # Ch 5 (MixPrompt):   shape_transfer  — MixPrompt_CR predicts MixPromptSV_SR
 #
-# ABCD grid convention (Ch 2 and Ch 4):
+# ABCD grid convention (Ch 2):
 #   notBH    D (early) | A (late) = SR
 #            -------------------------
 #   BH       C (early) | B (late)
@@ -16,7 +16,7 @@ fitname: "LittleGuy_Compressed_FullRegions"
 asimov: True
 datadriven: True
 
-# ── Shape transfer: Ch 1, Ch 3, Ch 5 ────────────────────────────────────────
+# ── Shape transfer: Ch 1, Ch 3, Ch 4, Ch 5 ────────────────────────────────────────
 
 shape_transfer_fit:
   bin_association:
@@ -54,12 +54,12 @@ shape_transfer_fit:
       - "MixPrompt_CR00"
       - "MixPrompt_SR10"
       - "MixPrompt_SR20"
-    # Ch 5 — CR
+    # Ch 4 — CR
     MixDel_AnchorCR:
       - "MixDel_AnchorCR00"
       - "MixDel_AnchorCR10"
       - "MixDel_AnchorCR20"
-    # Ch 5 — SR (CR00 is the buoy anchor bin)
+    # Ch 4 — SR (CR00 is the buoy anchor bin)
     MixDel_SR:
       - "MixDel_CR00"
       - "MixDel_SR10"
@@ -75,7 +75,7 @@ shape_transfer_fit:
     MixDel_AnchorCR:
       - "MixDel_SR"
 
-# ── ABCD: Ch 2 and Ch 4 ──────────────────────────────────────────────────────
+# ── ABCD: Ch 2 ──────────────────────────────────────────────────────
 ### need SR/CR in channel names because they need to match the bin names since thats how the CombineHarvester categories are built
 ABCD_fit:
   bin_association:
@@ -101,8 +101,6 @@ ABCD_fit:
     DelPho_TightIsoEarlyCR:
       - "DelPho_TightIsoEarlyCR00"
       - "DelPho_TightIsoEarlyCR10"
-
-    # Ch 4 — mixed delayed photon + incl. SV (2 RISR bins per cell)
 
   channel_association:
     # A = B*C/D: SR (notBH late) predicted by [BH late, notBH early, BH early]
@@ -279,56 +277,6 @@ systematics:
     bins:
       - "Eq2Pho_MedIsoCR30"
       - "Eq2Pho_TightIsoSR30"
-
-  # Ch 4: per-cell per-RISR-bin systematics for mixed delayed ABCD
-  sys_MixDel_BHEarly00:
-    type: "lnN"
-    name: "lnN_MixDel_BHEarly00"
-    init_val: 1.05
-    bins:
-      - "MixDel_BHEarlyCR00"
-  sys_MixDel_BHEarly10:
-    type: "lnN"
-    name: "lnN_MixDel_BHEarly10"
-    init_val: 1.05
-    bins:
-      - "MixDel_BHEarlyCR10"
-  sys_MixDel_BHLate00:
-    type: "lnN"
-    name: "lnN_MixDel_BHLate00"
-    init_val: 1.10
-    bins:
-      - "MixDel_BHLateCR00"
-  sys_MixDel_BHLate10:
-    type: "lnN"
-    name: "lnN_MixDel_BHLate10"
-    init_val: 1.10
-    bins:
-      - "MixDel_BHLateCR10"
-  sys_MixDel_NotBHEarly00:
-    type: "lnN"
-    name: "lnN_MixDel_NotBHEarly00"
-    init_val: 1.05
-    bins:
-      - "MixDel_NotBHEarlyCR00"
-  sys_MixDel_NotBHEarly10:
-    type: "lnN"
-    name: "lnN_MixDel_NotBHEarly10"
-    init_val: 1.05
-    bins:
-      - "MixDel_NotBHEarlyCR10"
-  sys_MixDel_NotBHLate00:
-    type: "lnN"
-    name: "lnN_MixDel_NotBHLate00"
-    init_val: 1.30
-    bins:
-      - "MixDel_NotBHLateSR00"
-  sys_MixDel_NotBHLate10:
-    type: "lnN"
-    name: "lnN_MixDel_NotBHLate10"
-    init_val: 1.30
-    bins:
-      - "MixDel_NotBHLateSR10"
 
   # Ch 5: per-RISR-bin shape uncertainty between CR and SR
   sys_MixPrompt_Shape00:
