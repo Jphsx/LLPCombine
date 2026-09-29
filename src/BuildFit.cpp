@@ -946,17 +946,17 @@ void BuildFit::DoSystematics(const string& split){
 	cout << "Adding additional systematics" << endl;
 	for(auto syst : _systs){
 		vector<string> procs = ExpandConfiguredProcesses(syst._procs);
+		vector<string> bins;
+		string name = syst._name+"_"+split;
 		if(syst._bins.size() == 0){
 			for(auto bin : _bins_superset)
-				syst._bins.push_back(recombineBinSplitName(bin,split));
+				bins.push_back(recombineBinSplitName(bin,split));
 		}
 		else{
-			vector<string> bins;
 			for(auto bin : syst._bins)
 				bins.push_back(recombineBinSplitName(bin,split));
-			syst._bins = bins;	
 		}
-		cb.cp().process(procs).bin(syst._bins).AddSyst(cb, syst._name, syst._type, SystMap<>::init(syst._init_val));
+		cb.cp().process(procs).bin(bins).AddSyst(cb, name, syst._type, SystMap<>::init(syst._init_val));
 	}
 
 }
