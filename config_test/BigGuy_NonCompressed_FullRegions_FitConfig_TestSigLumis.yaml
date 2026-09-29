@@ -7,70 +7,70 @@ datasplit: "run"
 #main fit
 #naming convention: Ch#[CR/SR]IDBin where Bin = xy coord in MsRs plane
 shape_transfer_fit:
-  #bin_association:
-  #  Ch1CRGeLep1:
-  #    - "Ch1CRGeLep100"
-  #    - "Ch1CRGeLep110"
-  #    - "Ch1CRGeLep101"
-  #    - "Ch1CRGeLep111"
-  #  Ch2SRGeLep1:
-  #    - "Ch2CRGeLep100"
-  #    - "Ch2SRGeLep110"
-  #    - "Ch2SRGeLep101"
-  #    - "Ch2SRGeLep111"
-  #  Ch3CRGeHad1:
-  #    - "Ch3CRGeHad100"
-  #    - "Ch3CRGeHad110"
-  #    - "Ch3CRGeHad101"
-  #    - "Ch3CRGeHad111"
-  #    - "Ch3CRGeHad121"
-  #  Ch4SRGeHad1:
-  #    - "Ch4CRGeHad100"
-  #    - "Ch4SRGeHad110"
-  #    - "Ch4SRGeHad101"
-  #    - "Ch4SRGeHad111"
-  #    - "Ch4SRGeHad121"
-  #  Ch9CReq1PhoMedIsoPromptBin:
-  #    - "Ch9CReq1PhoMedIsoPromptBin00"
-  #    - "Ch9CReq1PhoMedIsoPromptBin01"
-  #    - "Ch9CReq1PhoMedIsoPromptBin10"
-  #    - "Ch9CReq1PhoMedIsoPromptBin11"
-  #    - "Ch9CReq1PhoMedIsoPromptBin02"
-  #    - "Ch9CReq1PhoMedIsoPromptBin12"
-  #  Ch10SReq1PhoTightIsoPromptBin:
-  #    - "Ch10CReq1PhoTightIsoPromptBin00"
-  #    - "Ch10SReq1PhoTightIsoPromptBin01"
-  #    - "Ch10SReq1PhoTightIsoPromptBin10"
-  #    - "Ch10SReq1PhoTightIsoPromptBin11"
-  #    - "Ch10SReq1PhoTightIsoPromptBin02"
-  #    - "Ch10SReq1PhoTightIsoPromptBin12"
-  #  Ch11CReq2PhoMedIsoPromptBin:
-  #    - "Ch11CReq2PhoMedIsoPromptBin00"
-  #    - "Ch11CReq2PhoMedIsoPromptBin01"
-  #    - "Ch11CReq2PhoMedIsoPromptBin10"
-  #    - "Ch11CReq2PhoMedIsoPromptBin11"
-  #  Ch12SReq2PhoTightIsoPromptBin:
-  #    - "Ch12CReq2PhoTightIsoPromptBin00"
-  #    - "Ch12SReq2PhoTightIsoPromptBin01"
-  #    - "Ch12SReq2PhoTightIsoPromptBin10"
-  #    - "Ch12SReq2PhoTightIsoPromptBin11"
-  #  Ch13CRgeq1SVLowDxygeq1PhoNotBHLate:
-  #    - "Ch13CRgeq1SVLowDxygeq1PhoNotBHLate00"
-  #    - "Ch13CRgeq1SVLowDxygeq1PhoNotBHLate01"
-  #  Ch14SRgeq1SVHighDxygeq1PhoNotBHLate:
-  #    - "Ch14CRgeq1SVHighDxygeq1PhoNotBHLate00"
-  #    - "Ch14SRgeq1SVHighDxygeq1PhoNotBHLate01"
-  #channel_association:
-  #  Ch1CRGeLep1:
-  #    - "Ch2SRGeLep1"
-  #  Ch3CRGeHad1:
-  #    - "Ch4SRGeHad1"
-  #  Ch9CReq1PhoMedIsoPromptBin:
-  #    - "Ch10SReq1PhoTightIsoPromptBin"
-  #  Ch11CReq2PhoMedIsoPromptBin:
-  #    - "Ch12SReq2PhoTightIsoPromptBin"
-  #  Ch13CRgeq1SVLowDxygeq1PhoNotBHLate:
-  #    - "Ch14SRgeq1SVHighDxygeq1PhoNotBHLate"
+  bin_association:
+    Ch1CRGeLep1:
+      - "Ch1CRGeLep100"
+      - "Ch1CRGeLep110"
+      - "Ch1CRGeLep101"
+      - "Ch1CRGeLep111"
+    Ch2SRGeLep1:
+      - "Ch2CRGeLep100"
+      - "Ch2SRGeLep110"
+      - "Ch2SRGeLep101"
+      - "Ch2SRGeLep111"
+    Ch3CRGeHad1:
+      - "Ch3CRGeHad100"
+      - "Ch3CRGeHad110"
+      - "Ch3CRGeHad101"
+      - "Ch3CRGeHad111"
+      - "Ch3CRGeHad121"
+    Ch4SRGeHad1:
+      - "Ch4CRGeHad100"
+      - "Ch4SRGeHad110"
+      - "Ch4SRGeHad101"
+      - "Ch4SRGeHad111"
+      - "Ch4SRGeHad121"
+    Ch9CReq1PhoMedIsoPromptBin:
+      - "Ch9CReq1PhoMedIsoPromptBin00"
+      - "Ch9CReq1PhoMedIsoPromptBin01"
+      - "Ch9CReq1PhoMedIsoPromptBin10"
+      - "Ch9CReq1PhoMedIsoPromptBin11"
+      - "Ch9CReq1PhoMedIsoPromptBin02"
+      - "Ch9CReq1PhoMedIsoPromptBin12"
+    Ch10SReq1PhoTightIsoPromptBin:
+      - "Ch10CReq1PhoTightIsoPromptBin00"
+      - "Ch10SReq1PhoTightIsoPromptBin01"
+      - "Ch10SReq1PhoTightIsoPromptBin10"
+      - "Ch10SReq1PhoTightIsoPromptBin11"
+      - "Ch10SReq1PhoTightIsoPromptBin02"
+      - "Ch10SReq1PhoTightIsoPromptBin12"
+    Ch11CReq2PhoMedIsoPromptBin:
+      - "Ch11CReq2PhoMedIsoPromptBin00"
+      - "Ch11CReq2PhoMedIsoPromptBin01"
+      - "Ch11CReq2PhoMedIsoPromptBin10"
+      - "Ch11CReq2PhoMedIsoPromptBin11"
+    Ch12SReq2PhoTightIsoPromptBin:
+      - "Ch12CReq2PhoTightIsoPromptBin00"
+      - "Ch12SReq2PhoTightIsoPromptBin01"
+      - "Ch12SReq2PhoTightIsoPromptBin10"
+      - "Ch12SReq2PhoTightIsoPromptBin11"
+    Ch13CRgeq1SVLowDxygeq1PhoNotBHLate:
+      - "Ch13CRgeq1SVLowDxygeq1PhoNotBHLate00"
+      - "Ch13CRgeq1SVLowDxygeq1PhoNotBHLate01"
+    Ch14SRgeq1SVHighDxygeq1PhoNotBHLate:
+      - "Ch14CRgeq1SVHighDxygeq1PhoNotBHLate00"
+      - "Ch14SRgeq1SVHighDxygeq1PhoNotBHLate01"
+  channel_association:
+    Ch1CRGeLep1:
+      - "Ch2SRGeLep1"
+    Ch3CRGeHad1:
+      - "Ch4SRGeHad1"
+    Ch9CReq1PhoMedIsoPromptBin:
+      - "Ch10SReq1PhoTightIsoPromptBin"
+    Ch11CReq2PhoMedIsoPromptBin:
+      - "Ch12SReq2PhoTightIsoPromptBin"
+    Ch13CRgeq1SVLowDxygeq1PhoNotBHLate:
+      - "Ch14SRgeq1SVHighDxygeq1PhoNotBHLate"
 #main fit
 #ABCD - SR bin (D) maps to [C, A, B]
 #grid convention
@@ -151,6 +151,7 @@ systematics:
   sys1:
       type: "lnN"
       name: "lnN_Ch1Ch2geLep1Shape00"
+      split: "Run2"
       init_val: 1.05
       bins:
         - "Ch1CRGeLep100"

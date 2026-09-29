@@ -37,8 +37,9 @@ struct yamlSys{
                         _init_val = syst["init_val"].as<double>();
 			if(!syst["bins"])
 				_bins = {};
-			else
+			else{
                         	_bins = syst["bins"].as<vector<string>>();
+			}
 			if(!syst["procs"])
 				_procs = {"bkg"};
 			else
@@ -67,6 +68,7 @@ class BuildFit{
 		void BuildABCDFit();
 		void BuildABCDFit(const string& split);
 		void DoSystematics();
+		void DoSystematics(const string& split);
 		void WriteDatacard(string datacard_dir, bool verbose = false);
 		double SumObs(const string& bin){
 			double obs = 0;

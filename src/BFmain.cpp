@@ -111,7 +111,7 @@ int main(int argc, char* argv[]){
 			BF.BuildShapeTransferFit();
 			BF.BuildABCDFit();
 			//highDm channel names
-			BF.AddTemplateProcessABCD("Ch17CRgeq1PhoTightIsoEarly","Ch7CRgeq1PhoNotBHEarly");
+			BF.AddTemplateProcessABCD("Ch17CRgeq1PhoTightIsoEarly","Ch7CRgeq1PhoNotBHEarlyBin");
 			//compresssed channel names
 			BF.AddTemplateProcessABCD("DelPho_TightIsoEarlyCR","DelPho_NotBHEarlyCR");
 			BF.SetObservations(); 
@@ -119,10 +119,6 @@ int main(int argc, char* argv[]){
 			//write datacard
 			BF.WriteDatacard(datacard_dir, true);
 			datacard_dir = "datacards";
-
-			//needs to come after fit initialization because asimov observations are set differently
-			//depending on which fit is run (for now)
-			//BF.BuildABCDFitChannelToChannel();
 		}
 	}
 	catch(const std::exception& e){

@@ -926,13 +926,35 @@ void BuildFit::BuildABCDFitSingleBin(){
 	//for(auto b : bins) cout << b << endl;
 }
 
-//DoSystematics
 void BuildFit::DoSystematics(){
+	vector<string> splits;
+	if(_yearsplit){
+		splits = {"16","17","18","22","23","24","25"};
+	}
+	else if(_runsplit){
+		splits = {"Run2","Run3"};
+
+	}
+	else
+		splits = {""};	
+	for(auto split : splits)
+		DoSystematics(split);
+
+}
+//DoSystematics
+void BuildFit::DoSystematics(const string& split){
+	cout << "Adding additional systematics" << endl;
 	for(auto syst : _systs){
 		vector<string> procs = ExpandConfiguredProcesses(syst._procs);
 		if(syst._bins.size() == 0){
 			for(auto bin : _bins_superset)
-				syst._bins.push_back(bin);
+				syst._bins.push_back(recombineBinSplitName(bin,split));
+		}
+		else{
+			vector<string> bins;
+			for(auto bin : syst._bins)
+				bins.push_back(recombineBinSplitName(bin,split));
+			syst._bins = bins;	
 		}
 		cb.cp().process(procs).bin(syst._bins).AddSyst(cb, syst._name, syst._type, SystMap<>::init(syst._init_val));
 	}
