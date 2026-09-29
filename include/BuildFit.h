@@ -100,7 +100,7 @@ class BuildFit{
 		void AddTemplateProcessABCD(string src_ch, string target_ch, double tf = -999, string proc = "");
 
 		std::vector<std::string> sigkeys = { "gogoZ", "gogoG", "gogoGZ", "sqsqZ", "sqsqG", "sqsqGZ" };
-		std::vector<std::string> datakeys = { "MET18", "DisplacedJet18", "data", "MET23"};
+		std::vector<std::string> datakeys = { "MET18", "DisplacedJet18", "data", "MET23","MET22"};
 
 		string GetFitName(){ return _fitname; }
 
@@ -148,7 +148,8 @@ class BuildFit{
 		double _rateparam_railguard_min = 1.0e-6;
 		double _rateparam_railguard_max = 10000.0;
 		bool _rateparam_floor_zero_init = true;
-
+		bool _yearsplit = false;
+		bool _runsplit = false;
 		//get total yield over all processes for a given bin
 		double getTotYield(string bin){
 			double bin_tot_yield = 0;
@@ -178,7 +179,7 @@ class BuildFit{
 		std::string ResolveRateParamName(const std::string& name, const std::string& bin, const std::string& proc) const;
 		void SetRateParamRange(const std::string& name, const std::vector<std::string>& bins, const std::vector<std::string>& procs);
 		void AddRateParam(const std::vector<std::string>& procs, const std::vector<std::string>& bins, const std::string& name, double init);
-
+		void BuildSplitBins(const vector<string>& splits);
 		ch::Process create_proc(string mass, string analysis, string era, string channel, string proc, pair<int, string> bininfo, bool signal, double rate){
 			ch::Process newproc;
                         newproc.set_mass(mass);

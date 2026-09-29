@@ -278,14 +278,34 @@ BuildFit::BuildFit(string infile){
 		_datadriven = true;
 	else
 		_datadriven = false;
+	if(base["datasplit"]){
+		if(base["datasplit"].as<string>() == "run")
+			_runsplit = true;
+		else if(base["datasplit"].as<string>() == "year")
+			_yearsplit = true;
+		else{ }	
+	}
 	if(base["preserve_background_processes"])
 		_preserve_background_processes = base["preserve_background_processes"].as<bool>();
 }
 
+void BuildFit::BuildSplitBins(const vector<string>& splits){
+	std::set<std::string> bins_superset;
+	for(auto bin : _bins_superset){
+		for(auto split : splits)
+			bins_superset.insert(bin+"_"+split);	
+	}
+	_bins_superset = bins_superset;
+}
 
 //builds categories, makes asimov obs if specified, etc
 void BuildFit::PrepFit(JSONFactory* j, string signalPoint, vector<string> datakeys){
 	_yields = j->j;
+	if(_yearsplit) //TODO double check these are the year notations for yearsplit bins
+		BuildSplitBins({"16","17","18","22","23","24","25"});
+	else if(_runsplit)
+		BuildSplitBins({"Run2","Run3"});
+	else{ }	
 	//build cats per fit-type call
 	BuildCats(j);
 cout << "built cats" << endl;	
@@ -926,8 +946,8 @@ std::vector<std::string> BuildFit::GetDataProcs(JSONFactory* j){
                 //inner loop process iterator
                 std::string binname = it.key();
                 for (json::iterator it2 = it.value().begin(); it2 != it.value().end(); ++it2){
-                      //std::cout<< it2.key()<<"\n";
                         if(  BFTool::ContainsAnySubstring(it2.key(),datakeys) ){
+                      std::cout<< it2.key()<<"\n";
                                 bkgprocs.push_back(it2.key());
                         }
                 }
