@@ -1,5 +1,6 @@
 #include "BuildFit.h"
 #include <cmath>
+#include <limits>
 #include <iostream>
 #include <filesystem>
 #include <sstream>
@@ -215,6 +216,8 @@ void BuildFit::ParseABCDTemplates(const YAML::Node& node){
 			catch(const std::exception&){ pos = 0; }
 			if(pos == 0 || pos != tf.size() || !std::isfinite(tmpl.transfer_factor))
 				throw std::runtime_error(label + ": transfer_factor must be 'auto' or a finite number, got '" + tf + "'");
+			if(tmpl.transfer_factor < 0.)
+				throw std::runtime_error(label + ": transfer_factor must not be negative, got '" + tf + "'");
 			tmpl.auto_transfer_factor = false;
 		}
 		if(tmpl.process.empty())
@@ -233,13 +236,34 @@ void BuildFit::ParseABCDTemplates(const YAML::Node& node){
 		for(const auto& bin : _abcd_bin_ass.at(tmpl.target_channel))
 			if(!source_idx.count(getBinIdx(bin)))
 				throw std::runtime_error(label + ": target bin '" + bin + "' has no source bin with index " + getBinIdx(bin));
-		if(tmpl.process == getProcess(_abcd_bin_ass.at(tmpl.target_channel).front()))
+		//the template splits the target channel into template + residual of exactly one ABCD process
+		string abcd_proc = ABCDProcessOfChannel(tmpl.target_channel);
+		if(abcd_proc.empty())
+			throw std::runtime_error(label + ": target channel is not a control region of any ABCD_fit.channel_association process");
+		if(tmpl.process == abcd_proc)
 			throw std::runtime_error(label + ": process is already the ABCD process of the target channel; a template must add a distinct process");
+		//the data-driven model decomposes a target channel into one template and one ABCD residual only
 		for(const auto& other : _abcd_templates)
-			if(other.target_channel == tmpl.target_channel && other.process == tmpl.process)
-				throw std::runtime_error(label + ": duplicate template for this target channel and process");
+			if(other.target_channel == tmpl.target_channel)
+				throw std::runtime_error("ABCD_fit.template_processes contains multiple templates for target channel '" + tmpl.target_channel
+					+ "' (processes '" + other.process + "' and '" + tmpl.process + "'). Multiple templates per target channel are not supported by the current data-driven model.");
 		_abcd_templates.push_back(tmpl);
 	}
+}
+
+//the ABCD process whose control regions include cr_ch ("" if none); a channel shared by two ABCD processes is ambiguous
+string BuildFit::ABCDProcessOfChannel(const string& cr_ch) const{
+	std::set<string> procs;
+	for(const auto& sr : _abcd_ch_ass)
+		for(const auto& pc : sr.second)
+			if(find(pc.second.begin(), pc.second.end(), cr_ch) != pc.second.end())
+				procs.insert(pc.first);
+	if(procs.size() > 1){
+		string names;
+		for(const auto& p : procs) names += (names.empty() ? "" : ", ") + p;
+		throw std::runtime_error("Channel '" + cr_ch + "' is a control region of more than one ABCD process (" + names + ")");
+	}
+	return procs.empty() ? "" : *procs.begin();
 }
 
 //takes input fit config and JSONFactor as inputs
@@ -378,6 +402,7 @@ BuildFit::BuildFit(string infile){
 	}
 	_fit_bins = ExpandToSplits(_bins_superset);
 	_fit_bins_abcd = ExpandToSplits(_bins_superset_abcd);
+	ValidateSystematics();
 	for(const auto& syst : _systs){
 		vector<string> unknown;
 		for(const auto& bin : syst._bins){
@@ -571,7 +596,16 @@ void BuildFit::BuildShapeTransferFitForSplit(const string& split){
 			//get buoy bin for this buoy channel
 			string buoy_bin = WithSplit(GetBuoyBin(buoy_ch), split);
 			double buoych_anchorbin_tot_yield = getTotYield(buoy_bin);
-			double transfer_factor = buoych_anchorbin_tot_yield/anchorch_anchorbin_tot_yield;
+			//the transfer factor must be well defined here; the rateParam railguard is not meant to hide a 0/0 or x/0
+			double transfer_factor = anchorch_anchorbin_tot_yield > 0. ? buoych_anchorbin_tot_yield/anchorch_anchorbin_tot_yield : std::numeric_limits<double>::quiet_NaN();
+			if(!(anchorch_anchorbin_tot_yield > 0.) || !std::isfinite(transfer_factor) || transfer_factor < 0.){
+				std::ostringstream msg;
+				msg << "Cannot construct shape transfer for " << buoy_ch << (split.empty() ? "" : ", " + split)
+				    << " (anchor channel " << anchor_ch << "): anchor bin " << anchorch_anchorbin << " yield " << anchorch_anchorbin_tot_yield
+				    << ", buoy bin " << buoy_bin << " yield " << buoych_anchorbin_tot_yield
+				    << "; the transfer factor buoy/anchor must be finite and non-negative, which needs a positive anchor yield";
+				throw std::runtime_error(msg.str());
+			}
 			//tie anchor channel norm to buoy channels norm
 			//buoy channel bins (b_i) have rates set to their anchor counterparts (a_i)
 			//so we want to tie these bins together via a rate param initialized to the ratio N = A/B
@@ -611,7 +645,13 @@ void BuildFit::BuildShapeTransferFitForSplit(const string& split){
 
 
 //BuildABCD - channel-to-channel ABCD
-//configured ABCD template processes are part of this model and are added after the ABCD constraints
+//
+//construction order (per split, never mixing splits):
+//	1. decompose every template target bin into template + ABCD residual (ComputeABCDTemplates)
+//	2. add the ABCD processes
+//	3. create each CR rateParam once, from the residual where the channel is templated, else from the data yield
+//	4. create the SR formulas A = B*C/D and, for a datadriven asimov fit, set the SR observation to the sum of the predictions
+//	5. add the template processes and their own transfer-factor rateParams
 void BuildFit::BuildABCDFit(){
 	cout << "Building ABCD Fit" << endl;
 	if(_preserve_background_processes && !_datadriven){
@@ -624,6 +664,8 @@ void BuildFit::BuildABCDFit(){
 		cout << "No channel association specified for ABCD fit. This fit config will not be written. Returning." << endl;
 		return;
 	}
+	//all template yields are known (and validated) before any ABCD rateParam is created
+	ComputeABCDTemplates();
 	ch::Categories cats_abcd;
 	BuildCatsSubset(_fit_bins_abcd, cats_abcd);
 	//for having separate processes in different bins
@@ -652,15 +694,114 @@ void BuildFit::BuildABCDFit(){
         });
 	for(const auto& split : ActiveSplitLabels())
 		BuildABCDConstraintsForSplit(split);
-	for(const auto& tmpl : _abcd_templates)
-		for(const auto& split : ActiveSplitLabels())
-			AddABCDTemplateProcess(tmpl, split);
+	for(const auto& result : _abcd_template_results)
+		AddABCDTemplateProcess(result);
+}
+
+//data-driven yield of a bin: the summed "bkg" process, i.e. the data in a datadriven fit
+double BuildFit::DataDrivenYield(const string& bin, const string& context) const{
+	return GetYieldValue(bin, _bkg_proc, 1, context);
+}
+
+//yield that initializes the ABCD rateParam of a control-region bin: the residual after the
+//template contribution for a templated target bin, the full data-driven yield otherwise
+double BuildFit::ABCDControlYield(const string& crbin) const{
+	auto it = _abcd_template_bins.find(crbin);
+	if(it != _abcd_template_bins.end())
+		return it->second.residual_yield;
+	return DataDrivenYield(crbin, "BuildABCDFit CR rate");
+}
+
+//decomposes each target-channel bin of one split as
+//	target = template + residual,  template = TF * source (same bin index, same split)
+//TF auto: min over bins with a non-zero source yield of target/source, so no residual is negative;
+//a numeric TF that makes any residual negative is a configuration error
+ABCDTemplateSplitResult BuildFit::ComputeABCDTemplate(const ABCDTemplateProcess& tmpl, const string& split) const{
+	using DataSplit::WithSplit;
+	string label = "ABCD template '" + tmpl.process + "' (" + tmpl.source_channel + " -> " + tmpl.target_channel + (split.empty() ? "" : ", " + split) + ")";
+	ABCDTemplateSplitResult result;
+	result.config = tmpl;
+	result.split = split;
+	string abcd_proc = ABCDProcessOfChannel(tmpl.target_channel);
+	auto tbins = _abcd_bin_ass.find(tmpl.target_channel);
+	if(tbins == _abcd_bin_ass.end() || tbins->second.empty())
+		throw std::runtime_error(label + ": target channel has no bins");
+	for(const auto& logical_bin : tbins->second){
+		ABCDTemplateBinResult b;
+		b.target_bin = WithSplit(logical_bin, split);
+		b.source_bin = WithSplit(tmpl.source_channel + getBinIdx(logical_bin), split);
+		b.template_process = tmpl.process;
+		b.abcd_process = abcd_proc;
+		b.source_yield = DataDrivenYield(b.source_bin, "ABCD template source yield");
+		b.target_yield = DataDrivenYield(b.target_bin, "ABCD template target yield");
+		result.bins.push_back(b);
+	}
+	double tf = tmpl.transfer_factor;
+	if(tmpl.auto_transfer_factor){
+		//bins with no source yield do not constrain the ratio
+		tf = std::numeric_limits<double>::infinity();
+		for(const auto& b : result.bins)
+			if(b.source_yield > 0.)
+				tf = std::min(tf, b.target_yield / b.source_yield);
+		if(!std::isfinite(tf))
+			throw std::runtime_error(label + ": cannot compute an automatic transfer factor, every source bin has zero yield");
+	}
+	result.transfer_factor = tf;
+	for(auto& b : result.bins){
+		b.transfer_factor = tf;
+		b.template_yield = tf * b.source_yield;
+		b.residual_yield = b.target_yield - b.template_yield;
+		//tolerate only floating-point rounding (auto TF makes the minimizing bin's residual exactly zero)
+		double tol = 1e-9 * std::max(1., std::fabs(b.target_yield));
+		if(b.residual_yield < -tol){
+			std::ostringstream msg;
+			msg << "ABCD template '" << tmpl.process << "' gives a negative residual\n"
+			    << "  split: " << (split.empty() ? "none" : split) << "\n"
+			    << "  bin index: " << getBinIdx(b.target_bin) << "\n"
+			    << "  source bin: " << b.source_bin << "\n"
+			    << "  target bin: " << b.target_bin << "\n"
+			    << "  source yield: " << b.source_yield << "\n"
+			    << "  target yield: " << b.target_yield << "\n"
+			    << "  transfer factor: " << tf << (tmpl.auto_transfer_factor ? " (auto)" : "") << "\n"
+			    << "  template prediction: " << b.template_yield << "\n"
+			    << "  residual: " << b.residual_yield;
+			throw std::runtime_error(msg.str());
+		}
+		if(b.residual_yield < 0.){
+			b.residual_yield = 0.;
+			b.template_yield = b.target_yield;
+		}
+		//invariant: the two data-driven components add back up to the observed target yield
+		if(std::fabs(b.template_yield + b.residual_yield - b.target_yield) > tol)
+			throw std::logic_error(label + ": template + residual does not reproduce the target yield in " + b.target_bin);
+	}
+	return result;
+}
+
+void BuildFit::ComputeABCDTemplates(){
+	_abcd_template_results.clear();
+	_abcd_template_bins.clear();
+	for(const auto& tmpl : _abcd_templates){
+		for(const auto& split : ActiveSplitLabels()){
+			ABCDTemplateSplitResult result = ComputeABCDTemplate(tmpl, split);
+			cout << "ABCD template " << tmpl.process << (split.empty() ? "" : " " + split) << " transfer factor = " << result.transfer_factor
+			     << (tmpl.auto_transfer_factor ? " (auto)" : "") << endl;
+			for(const auto& b : result.bins)
+				if(!_abcd_template_bins.emplace(b.target_bin, b).second)
+					throw std::logic_error("ABCD target bin '" + b.target_bin + "' is templated more than once");
+			_abcd_template_results.push_back(result);
+		}
+	}
 }
 
 //ABCD relations for one split: A_split = B_split * C_split / D_split, so an SR prediction
 //only ever references control-region rateParams of its own split
 void BuildFit::BuildABCDConstraintsForSplit(const string& split){
 	using DataSplit::WithSplit;
+	//each (CR bin, process) rateParam is created exactly once, even if several SR bins or channels use it
+	std::set<pair<string, string>> cr_rateparams_done;
+	//SR bin -> process -> datadriven asimov prediction
+	map<string, map<string, double>> sr_predictions;
 	//only applies ABCD treatment to background processes
 	//separate ABCD factors for each bin, bins in channel tied together with extra systematics
 	for(auto chit = _abcd_ch_ass.begin(); chit != _abcd_ch_ass.end(); chit++){
@@ -676,22 +817,30 @@ void BuildFit::BuildABCDConstraintsForSplit(const string& split){
 				//set rate of bkg in sr_bin to nominally be prediction from observations in cr bins
 				//A_pred = B*(C/D) from A*D = B*C
 				vector<string> cr_bins_matchidx;
-				for(auto cr_ch : cr_chs){
-					vector<string> cr_bins = _abcd_bin_ass[cr_ch];
-					for(auto cr_bin : cr_bins){
-						if(getBinIdx(cr_bin) != binidx)
-							continue;
-						string crbin = WithSplit(cr_bin, split);
-						cr_bins_matchidx.push_back(crbin);
-						double bkgrate_cr = GetYieldValue(crbin, _bkg_proc, 1, "BuildABCDFit CR rate");
-						AddRateParam({proc}, {crbin}, "scale_$BIN", bkgrate_cr);
-					}
-				}
+				for(auto cr_ch : cr_chs)
+					for(auto cr_bin : _abcd_bin_ass[cr_ch])
+						if(getBinIdx(cr_bin) == binidx)
+							cr_bins_matchidx.push_back(WithSplit(cr_bin, split));
 				if(cr_bins_matchidx.size() < 3)
 					throw std::runtime_error("ABCD SR bin '" + sr_bin + "' (process '" + proc + "') needs three control-region bins with index " + binidx + ", found " + std::to_string(cr_bins_matchidx.size()));
-				//for a datadriven asimov fit (ie when the SR is blinded), set the observed yields in the SR bins to the expectation
+				//CR yields for the ABCD process: residual yields in templated target bins
+				vector<double> cr_yields;
+				for(const auto& crbin : cr_bins_matchidx){
+					cr_yields.push_back(ABCDControlYield(crbin));
+					if(cr_rateparams_done.insert({crbin, proc}).second)
+						AddRateParam({proc}, {crbin}, "scale_$BIN", cr_yields.back());
+				}
+				//for a datadriven asimov fit (ie when the SR is blinded), the observed SR yield is the expectation
 				if(_asimov && _datadriven){
-					_obs_rates[sr_bin][proc] = double(int(_obs_rates[cr_bins_matchidx[0]][proc] * (_obs_rates[cr_bins_matchidx[1]][proc] / _obs_rates[cr_bins_matchidx[2]][proc])));
+					double pred = cr_yields[0] * (cr_yields[1] / cr_yields[2]);
+					if(!std::isfinite(pred)){
+						std::ostringstream msg;
+						msg << "ABCD asimov prediction for SR bin '" << sr_bin << "' (process '" << proc << "') is not finite: "
+						    << cr_bins_matchidx[0] << " = " << cr_yields[0] << ", " << cr_bins_matchidx[1] << " = " << cr_yields[1]
+						    << ", " << cr_bins_matchidx[2] << " = " << cr_yields[2];
+						throw std::runtime_error(msg.str());
+					}
+					sr_predictions[sr_bin][proc] = double(int(pred));
 				}
 				string cr_rateparams = "scale_"+cr_bins_matchidx[0];
 				for(int i = 1; i < (int)cr_bins_matchidx.size(); i++)
@@ -703,103 +852,52 @@ void BuildFit::BuildABCDConstraintsForSplit(const string& split){
 		}
 
 	}
-
+	//the blinded SR observation is exactly the sum of its background predictions (never the loaded SR data)
+	for(const auto& sp : sr_predictions)
+		_obs_rates[sp.first] = sp.second;
 }
 
 
-//adds tmpl.process to every target-channel bin of this split with
+//adds the template process to every target-channel bin of its split with
 //	rate = source-channel yield (same bin index, same split) * scale_<target>_<process>[_<split>]
-//and, for a datadriven asimov fit, moves the templated yield out of the target channel's ABCD prediction
-void BuildFit::AddABCDTemplateProcess(const ABCDTemplateProcess& tmpl, const string& split){
+//the ABCD residual of these bins was already used for their CR rateParams; for a datadriven asimov fit
+//the target observation is written as the explicit template + residual decomposition
+void BuildFit::AddABCDTemplateProcess(const ABCDTemplateSplitResult& result){
 	using DataSplit::WithSplit;
-	const string& src_ch = tmpl.source_channel;
-	const string& target_ch = tmpl.target_channel;
-	const string& proc = tmpl.process;
-	ch::Categories cats_abcd;
-	BuildCatsSubset(_fit_bins_abcd, cats_abcd);
-	//auto: smallest target/source yield ratio over the target bins, ignoring bins where it is undefined
-	double tf = tmpl.auto_transfer_factor ? 1e9 : tmpl.transfer_factor;
-	bool found_ratio = false;
-	int ntarget = 0;
-	for(auto c : cats_abcd){
-		if(DataSplit::SplitOf(c.second) != split || getChannel(c.second) != target_ch)
-			continue;
-		ntarget++;
-		cb.AddProcesses(   {"*"}, {_signalDetails[0]}, {"13.6TeV"}, {_signalDetails[1]}, {proc}, {c}, false);
-		if(!tmpl.auto_transfer_factor)
-			continue;
-		string binidx = getBinIdx(c.second);
-		double srcch_yield = GetYieldValue(WithSplit(src_ch+binidx, split), _bkg_proc, 1, "ABCD template source yield");
-		double targetch_yield = GetYieldValue(c.second, _bkg_proc, 1, "ABCD template target yield");
-		double ratio = targetch_yield / srcch_yield;
-		if(std::isfinite(ratio)) found_ratio = true;
-		if(ratio < tf)
-			tf = ratio;
+	const ABCDTemplateProcess& tmpl = result.config;
+	std::set<string> target_bins;
+	map<string, double> source_rates;
+	for(const auto& b : result.bins){
+		target_bins.insert(b.target_bin);
+		source_rates[b.target_bin] = b.source_yield;
 	}
-	string label = "ABCD template process '" + proc + "' (" + src_ch + " -> " + target_ch + (split.empty() ? "" : ", " + split) + ")";
-	if(ntarget == 0)
-		throw std::runtime_error(label + ": no target bins found in the fit categories");
-	if(tmpl.auto_transfer_factor && !found_ratio)
-		throw std::runtime_error(label + ": cannot compute an automatic transfer factor, every source bin has zero yield");
-	cout << label << " transfer factor " << tf << (tmpl.auto_transfer_factor ? " (auto)" : "") << endl;
-	vector<string> systbins;
+	ch::Categories cats;
+	BuildCatsSubset(target_bins, cats);
+	if(cats.size() != target_bins.size())
+		throw std::runtime_error("ABCD template '" + tmpl.process + "' (" + tmpl.target_channel + (result.split.empty() ? "" : ", " + result.split) + "): target bins missing from the fit categories");
+	cb.AddProcesses(   {"*"}, {_signalDetails[0]}, {"13.6TeV"}, {_signalDetails[1]}, {tmpl.process}, cats, false);
         cb.ForEachProc([&](ch::Process *x){
-		if(x->process() != proc) return;
-		//only do for this split's bins of the target channel in the ABCD region
-		if(_fit_bins_abcd.count(x->bin()) == 0) return;
-		if(DataSplit::SplitOf(x->bin()) != split || getChannel(x->bin()) != target_ch) return;
-		string binidx = getBinIdx(x->bin());
-		double srcch_rate = GetYieldValue(WithSplit(src_ch+binidx, split), _bkg_proc, 1, "ABCD template source rate");
-            	x->set_rate(srcch_rate);
-		systbins.push_back(x->bin());
+		if(x->process() != tmpl.process) return;
+		auto it = source_rates.find(x->bin());
+		if(it != source_rates.end())
+			x->set_rate(it->second);
         });
-	//update prediction in related SRs
-	if(_asimov && _datadriven){
-		for(auto chit = _abcd_ch_ass.begin(); chit != _abcd_ch_ass.end(); chit++){
-			string sr_ch = chit->first;
-			vector<string> sr_bins = _abcd_bin_ass[sr_ch];
-        	        for(auto pit = chit->second.begin(); pit != chit->second.end(); pit++){
-				//for each process get each bin associated with sr ch
-				vector<string> cr_chs = pit->second;
-				//skip if target ch is not found in this set of CRs
-				auto target_it = find(cr_chs.begin(), cr_chs.end(), target_ch);
-				if(target_it == cr_chs.end())
-					continue;
-				//index of target_ch in cr_chs to modify the correct yield
-				int targetcrch_idx = target_it - cr_chs.begin();
-				for(auto logical_sr_bin : sr_bins){
-					string sr_bin = WithSplit(logical_sr_bin, split);
-					string binidx = getBinIdx(logical_sr_bin);
-					//get bins for pred calculation
-					vector<string> cr_bins_matchidx;
-					for(auto cr_ch : cr_chs){
-						for(auto cr_bin : _abcd_bin_ass[cr_ch]){
-							if(getBinIdx(cr_bin) != binidx)
-								continue;
-							cr_bins_matchidx.push_back(WithSplit(cr_bin, split));
-						}
-					}
-					if(cr_bins_matchidx.size() < 3)
-						throw std::runtime_error(label + ": ABCD SR bin '" + sr_bin + "' needs three control-region bins with index " + binidx + ", found " + std::to_string(cr_bins_matchidx.size()));
-					//get yields for nominal, existing processes in ABCD CRs
-					vector<double> cr_yields = {SumObs(cr_bins_matchidx[0]), SumObs(cr_bins_matchidx[1]), SumObs(cr_bins_matchidx[2])};
-					//subtract predicted src_ch yield from corresponding target_ch
-					string target_bin = WithSplit(target_ch+binidx, split);
-					double pred_template_rate = double(int(tf*GetYieldValue(WithSplit(src_ch+binidx, split), _bkg_proc, 1, "ABCD template asimov source yield")));
-					cr_yields[targetcrch_idx] = double(int(cr_yields[targetcrch_idx] - pred_template_rate));
-					//update overall yield for target ch by subtracting out even contribution from every other process
-					_obs_rates[target_bin][proc] = pred_template_rate;
-					//overwrite old rateparam with new value
-					AddRateParam({pit->first}, {target_bin}, "scale_$BIN", cr_yields[targetcrch_idx]);
-					_obs_rates[target_bin][pit->first] -= double(int(pred_template_rate/(_obs_rates[target_bin].size()-1)));
-					double predbkg_yield = double(int(cr_yields[0] * (cr_yields[1] / cr_yields[2])));
-					//pit->first is the process to edit, proc is the process that was added
-					_obs_rates[sr_bin][pit->first] = predbkg_yield;
-				}
-			}
-		}
+	vector<string> systbins(target_bins.begin(), target_bins.end());
+	AddRateParam({tmpl.process}, systbins, WithSplit("scale_"+tmpl.target_channel+"_$PROCESS", result.split), result.transfer_factor);
+	if(!(_asimov && _datadriven))
+		return;
+	for(const auto& b : result.bins){
+		double original = SumObs(b.target_bin);
+		auto& obs = _obs_rates[b.target_bin];
+		obs.clear();
+		obs[b.abcd_process] = b.residual_yield;
+		obs[b.template_process] = b.template_yield;
+		//an empty target bin keeps the loaded observation (floored away from zero)
+		if(b.residual_yield <= 0. && b.template_yield <= 0.)
+			obs[b.abcd_process] = original;
+		if(std::fabs(SumObs(b.target_bin) - original) > 1e-6 * std::max(1., std::fabs(original)))
+			throw std::logic_error("ABCD template decomposition changed the observation of '" + b.target_bin + "'");
 	}
-	AddRateParam({proc}, systbins, WithSplit("scale_"+target_ch+"_$PROCESS", split), tf);
 }
 
 
@@ -897,6 +995,18 @@ void BuildFit::BuildABCDFitSingleBin(){
 	//cout << "current bins - abcd fit" << endl;
 	//auto bins = cb.bin_set();
 	//for(auto b : bins) cout << b << endl;
+}
+
+//a $BIN nuisance resolves to a different name in every split category (the bin names carry _Run2/_Run3),
+//so it can never be one shared nuisance; asking for that is a configuration error, not something to ignore
+void BuildFit::ValidateSystematics() const{
+	if(_datasplit == DataSplit::DataSplitMode::None)
+		return;
+	for(const auto& syst : _systs)
+		if(syst._split_correlation == SplitCorrelation::Correlated && syst._name.find("$BIN") != string::npos)
+			throw std::runtime_error("Systematic '" + syst._name + "' has split_correlation: correlated but its name contains $BIN. "
+				"With datasplit: " + DataSplit::ModeName(_datasplit) + " the bin names carry a split suffix, so $BIN resolves to a "
+				"different nuisance in each split and cannot be correlated. Remove $BIN from the name or use split_correlation: uncorrelated.");
 }
 
 //nuisance name of a configured systematic in one split; correlated systematics (and every unsplit fit)

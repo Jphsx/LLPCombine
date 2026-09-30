@@ -90,6 +90,7 @@ datasplit: run        # or omit / "none" for the unsplit fit
   - `correlated`: one nuisance `<name>` shared by the matching Run2 and Run3 bins
   
   In an unsplit fit the field has no effect and the nuisance keeps exactly `<name>`.
+  A name containing `$BIN` already resolves per split bin, so `correlated` with `$BIN` in a run-split fit is rejected as a configuration error.
 
 **ABCD template processes (BF fit config)**
 A process in an ABCD control channel can be templated bin-by-bin from another ABCD channel:
@@ -101,7 +102,13 @@ ABCD_fit:
       process: "bkgprompt"
       transfer_factor: auto    # or a number, e.g. 0.8
 ```
-Each target bin `i` gets `process` with rate = data yield of source bin `i`, scaled by the rateParam `scale_<target_channel>_<process>` (with a `_Run2`/`_Run3` suffix in a run-split fit) initialized to the transfer factor. `auto` is the smallest target/source data-yield ratio over the target bins (bins where the ratio is undefined are ignored). In a data-driven asimov fit the templated yield is also subtracted from the target channel's ABCD prediction. Any number of entries is allowed; each target bin needs a source bin with the same index.
+Each target bin `i` gets `process` with rate = data yield of source bin `i`, scaled by the rateParam `scale_<target_channel>_<process>` (with a `_Run2`/`_Run3` suffix in a run-split fit) initialized to the transfer factor. Each target bin's data is decomposed before any ABCD rateParam is created:
+
+    template = TF * source,   residual = target - template,   template + residual = target
+
+and the target channel's ABCD process (and every SR prediction that uses it) is initialized from the residual, with exactly one `scale_<target bin>` rateParam per bin. The transfer factor is computed separately for each run. `auto` is the smallest target/source data-yield ratio over the target bins, ignoring bins with zero source yield (it fails if every source bin is empty), so no residual is negative. A numeric transfer factor that makes any residual negative is rejected with the split, bins and yields. In a data-driven asimov fit the target observation stays the original data (template + residual) and each ABCD SR observation is the sum of its background predictions.
+
+At most one entry may target a given `target_channel` (the data-driven model supports one template per target channel); different target channels may each have their own template. The target channel must be a control region of exactly one ABCD process, and each target bin needs a source bin with the same index.
 
 **Signal file format and naming conventions**
 Both BFI and BF expect signals to be 1 file per grid point with the signal name (process name) and mass information in the file name. These get parsed and passed into JSON/datacards with the common tool header `BuildFitTools.h`.

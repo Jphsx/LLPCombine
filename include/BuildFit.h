@@ -79,6 +79,28 @@ struct ABCDTemplateProcess{
 	double transfer_factor = 1.;
 };
 
+//decomposition of one target-channel bin of one split into its templated part and the ABCD residual:
+//	target_yield = template_yield + residual_yield,  template_yield = transfer_factor * source_yield
+struct ABCDTemplateBinResult{
+	string source_bin;
+	string target_bin;
+	string template_process; //process added by the template
+	string abcd_process;     //ABCD process of the target channel, initialized from the residual
+	double source_yield = 0.;
+	double target_yield = 0.;
+	double transfer_factor = 0.;
+	double template_yield = 0.;
+	double residual_yield = 0.;
+};
+
+//one configured template evaluated in one split
+struct ABCDTemplateSplitResult{
+	ABCDTemplateProcess config;
+	string split;
+	double transfer_factor = 0.;
+	vector<ABCDTemplateBinResult> bins;
+};
+
 
 class BuildFit{
 	public:
@@ -175,7 +197,7 @@ class BuildFit{
 		bool _preserve_background_processes = false; //keeps MC backgrounds as separate Combine processes
 		bool _direct_mc_backgrounds_inserted = false;
 		//std::map<std::string, float> _obs_rates;
-		std::map<string, std::map<string, float>> _obs_rates; //map for obs_rates[bin][proc] 
+		std::map<string, std::map<string, double>> _obs_rates; //map for obs_rates[bin][proc] 
 		std::vector<std::string> _bkgprocs;
 		std::vector<std::string> _signalDetails;
 		json _yields;
@@ -188,6 +210,9 @@ class BuildFit{
 		std::set<string> _fit_bins_abcd;
 		DataSplit::DataSplitMode _datasplit = DataSplit::DataSplitMode::None;
 		vector<ABCDTemplateProcess> _abcd_templates;
+		//template decompositions of the current model, computed before any ABCD rateParam is created
+		vector<ABCDTemplateSplitResult> _abcd_template_results;
+		map<string, ABCDTemplateBinResult> _abcd_template_bins; //concrete target bin -> its decomposition
 		string _fitname;
 		string _signalPoint;
 		map<string, string> _shape_anchor_bins;
@@ -224,7 +249,14 @@ class BuildFit{
 		void ParseABCDTemplates(const YAML::Node& node);
 		void BuildShapeTransferFitForSplit(const string& split);
 		void BuildABCDConstraintsForSplit(const string& split);
-		void AddABCDTemplateProcess(const ABCDTemplateProcess& tmpl, const string& split);
+		string ABCDProcessOfChannel(const string& cr_ch) const;
+		double DataDrivenYield(const string& bin, const string& context) const;
+		//template decomposition of one split (pure calculation, does not touch the model); throws on a negative residual
+		ABCDTemplateSplitResult ComputeABCDTemplate(const ABCDTemplateProcess& tmpl, const string& split) const;
+		void ComputeABCDTemplates();
+		double ABCDControlYield(const string& crbin) const;
+		void AddABCDTemplateProcess(const ABCDTemplateSplitResult& result);
+		void ValidateSystematics() const;
 		string SystematicNameForSplit(const yamlSys& syst, const string& split) const;
 
 		void sumBkgs();
