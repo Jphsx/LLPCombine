@@ -114,6 +114,14 @@ ABCD_fit:
         - "DelPho_TightIsoEarlyCR"
         - "DelPho_MedIsoEarlyCR"
 
+  # Prompt bkg leaking into the notBH early CR, templated bin-by-bin from the tight-iso early CR.
+  # transfer_factor: auto = min over bins of yield(target)/yield(source), or give a number.
+  template_processes:
+    - source_channel: "DelPho_TightIsoEarlyCR"
+      target_channel: "DelPho_NotBHEarlyCR"
+      process: "bkgprompt"
+      transfer_factor: auto
+
 # ── Systematics ──────────────────────────────────────────────────────────────
 
 systematics:

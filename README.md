@@ -76,6 +76,33 @@ the binaries to run are then just `BFI.x` and `BF.x`
 **Expected file formats**
 Each file in sample tool will have it's own dataframe, do not combine them. If it has a different cross-section (e.g. HT slice) then it needs it's own data frame because I chose to use a constant weight when propagating statistical error. Typically you might sumW2 object with a histogram but we are avoiding ROOT for the sake of performace, thus the statistical errors are calculated by hand.
 
+**Run2/Run3 split fits (BF fit config)**
+A fit config can build one simultaneous likelihood with separate Run2 and Run3 categories:
+```yaml
+datasplit: run        # or omit / "none" for the unsplit fit
+```
+- The BFI JSON must be run-split (`samples: split: runSplit` in the analysis config), i.e. every bin exists as `<bin>_Run2` and `<bin>_Run3`. BF stops before building anything if a required bin is missing, and says when the JSON looks unsplit (or split for an unsplit fit config).
+- Keep writing unsuffixed bin/channel names in the fit config; BF expands every configured bin to its `_Run2`/`_Run3` categories.
+- Shape-transfer norms (`<buoy>Norm_Run2`), ABCD rateParams (`scale_<bin>_Run2`, SR formulas) and template scales are built per run from that run's yields only.
+- The signal keeps one process name in both runs, so a single signal strength `r` governs both.
+- Configured systematics take `split_correlation`:
+  - `uncorrelated` (default when omitted): one nuisance per run, `<name>_Run2` and `<name>_Run3`
+  - `correlated`: one nuisance `<name>` shared by the matching Run2 and Run3 bins
+  
+  In an unsplit fit the field has no effect and the nuisance keeps exactly `<name>`.
+
+**ABCD template processes (BF fit config)**
+A process in an ABCD control channel can be templated bin-by-bin from another ABCD channel:
+```yaml
+ABCD_fit:
+  template_processes:
+    - source_channel: "DelPho_TightIsoEarlyCR"
+      target_channel: "DelPho_NotBHEarlyCR"
+      process: "bkgprompt"
+      transfer_factor: auto    # or a number, e.g. 0.8
+```
+Each target bin `i` gets `process` with rate = data yield of source bin `i`, scaled by the rateParam `scale_<target_channel>_<process>` (with a `_Run2`/`_Run3` suffix in a run-split fit) initialized to the transfer factor. `auto` is the smallest target/source data-yield ratio over the target bins (bins where the ratio is undefined are ignored). In a data-driven asimov fit the templated yield is also subtracted from the target channel's ABCD prediction. Any number of entries is allowed; each target bin needs a source bin with the same index.
+
 **Signal file format and naming conventions**
 Both BFI and BF expect signals to be 1 file per grid point with the signal name (process name) and mass information in the file name. These get parsed and passed into JSON/datacards with the common tool header `BuildFitTools.h`.
 
