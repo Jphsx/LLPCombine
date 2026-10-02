@@ -87,11 +87,8 @@ void BuildFitInput::LoadSig_KeyValue( std::string key, stringlist siglist, doubl
 	//RDF df("kuSkimTree", bkglist);
 	std::cout << "sigkey " << key << std::endl;
 
-	//use lumi dict from analysis config if lumi not specified
-	std::string yr = "";
-	if(key.find("_") != string::npos){
-		yr = key.substr(key.find("_")+1);
-	}
+	//year-suffixed signals take their lumi from the resolved sigLumi map, the rest the overall lumi
+	std::string yr = LumiMap::SignalYearToken(key);
 	if(yr != ""){
 		if((_cfg.sigLumi.find(yr) != _cfg.sigLumi.end())){
 			std::cout << "yr " << yr << " lumi " << _cfg.sigLumi[yr] << std::endl;
@@ -468,41 +465,17 @@ void BuildFitInput::CreateBin(std::string binname){
 	analysisbins[binname] = bin;
 }
 
-bool BuildFitInput::IsKnownYearToken(const std::string& token) const{
-	for(const auto& runyr : _runyr_map){
-		const std::vector<std::string>& years = runyr.second;
-		if(std::find(years.begin(), years.end(), token) != years.end())
-			return true;
-	}
-	return false;
-}
-
 BuildFitInput::BinSplitInfo BuildFitInput::ResolveBinSplit(const std::string& binname) const{
 	std::size_t split_pos = binname.rfind("_");
 	if(split_pos == std::string::npos || split_pos + 1 >= binname.size())
 		return {};
 
 	std::string suffix = binname.substr(split_pos + 1);
-	if(_runyr_map.find(suffix) != _runyr_map.end())
+	if(LumiMap::IsKnownRun(suffix))
 		return {BinSplitMode::Run, suffix};
-	if(IsKnownYearToken(suffix))
+	if(LumiMap::IsKnownYear(suffix))
 		return {BinSplitMode::Year, suffix};
 	return {};
-}
-
-std::string BuildFitInput::DataYearToken(const std::string& procname) const{
-	if(procname.size() < 2)
-		return "";
-	std::string year = procname.substr(procname.size() - 2);
-	return IsKnownYearToken(year) ? year : "";
-}
-
-std::string BuildFitInput::SignalYearToken(const std::string& procname) const{
-	std::size_t split_pos = procname.rfind("_");
-	if(split_pos == std::string::npos || split_pos + 1 >= procname.size())
-		return "";
-	std::string year = procname.substr(split_pos + 1);
-	return IsKnownYearToken(year) ? year : "";
 }
 
 std::string BuildFitInput::StripSignalYearToken(const std::string& procname, const std::string& proc_year) const{
@@ -522,11 +495,7 @@ bool BuildFitInput::ShouldAddProcessToBin(const BinSplitInfo& split, const std::
 	if(split.mode == BinSplitMode::Year)
 		return split.suffix == proc_year;
 
-	auto runyr = _runyr_map.find(split.suffix);
-	if(runyr == _runyr_map.end())
-		return false;
-	const std::vector<std::string>& years = runyr->second;
-	return std::find(years.begin(), years.end(), proc_year) != years.end();
+	return LumiMap::RunOfYear(proc_year) == split.suffix;
 }
 
 void BuildFitInput::AddOrMergeProcess(std::map<std::string, Process*>& processes, Process* proc) const{
@@ -570,7 +539,7 @@ void BuildFitInput::AddDataToBinObjects( countmap countResults, summap sumResult
 		//if(binname.find(binnametest) != std::string::npos)
 		//	std::cout << "procname " << procname << " binname " << binname << std::endl;
 		BinSplitInfo split = ResolveBinSplit(binname);
-		std::string proc_year = DataYearToken(procname);
+		std::string proc_year = LumiMap::DataYearToken(procname);
 		if(!ShouldAddProcessToBin(split, proc_year))
 			continue;
 
@@ -630,7 +599,7 @@ void BuildFitInput::AddSigToBinObjects( countmap countResults, summap sumResults
 			continue;
 
 		std::string procname = it.first.first;
-		std::string proc_year = SignalYearToken(procname);
+		std::string proc_year = LumiMap::SignalYearToken(procname);
 		BinSplitInfo split = ResolveBinSplit(binname);
 		if(!ShouldAddProcessToBin(split, proc_year))
 			continue;
