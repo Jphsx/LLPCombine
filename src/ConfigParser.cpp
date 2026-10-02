@@ -4,6 +4,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cstring>
+#include <cstdlib>
 #include <cctype>
 
 namespace {
@@ -278,6 +279,170 @@ private:
     }
 };
 
+namespace {
+// Run-dependent kinematic vectors from the optional "kinematics:" block, as
+// split label -> parameter name -> values. Values keep their YAML text so a
+// resolved cut reads exactly as if the number had been written in place.
+typedef std::map<std::string, std::map<std::string, std::vector<std::string>>> KinematicTables;
+
+bool IsNumber(const std::string& s) {
+    if (s.empty()) return false;
+    char* end = nullptr;
+    std::strtod(s.c_str(), &end);
+    return end == s.c_str() + s.size();
+}
+
+// Collects kinematics.<split>.<param>: [v0, v1, ...] entries.
+bool ReadKinematicTables(const SimpleYAMLParser& parser, KinematicTables& tables) {
+    const std::string prefix = "kinematics.";
+    for (const auto& pair : parser.values) {
+        if (pair.first.find(prefix) == 0 && (!pair.second.empty() || !parser.lists.count(pair.first))) {
+            std::cerr << "Error: kinematics entry '" << pair.first << "' must be an inline array, e.g. [2000, 2600]" << std::endl;
+            return false;
+        }
+    }
+    for (const auto& pair : parser.lists) {
+        if (pair.first.find(prefix) != 0) continue;
+        std::string remainder = pair.first.substr(prefix.size());
+        size_t dot_pos = remainder.find('.');
+        // "kinematics.<split>" lists are not parameters: SimpleYAMLParser files the
+        // items of later top-level anchors (e.g. "bLep00: &bLep00") under the last
+        // section.subsection it opened, so they can land here.
+        if (dot_pos == std::string::npos) continue;
+        if (remainder.find('.', dot_pos + 1) != std::string::npos) {
+            std::cerr << "Error: kinematics entry '" << pair.first << "' must be nested as kinematics: <split>: <parameter>: [...]" << std::endl;
+            return false;
+        }
+        std::string split = remainder.substr(0, dot_pos);
+        std::string param = remainder.substr(dot_pos + 1);
+        for (const auto& value : pair.second) {
+            if (!IsNumber(value)) {
+                std::cerr << "Error: kinematics." << split << "." << param << " contains non-numeric value '" << value << "'" << std::endl;
+                return false;
+            }
+        }
+        tables[split][param] = pair.second;
+    }
+    return true;
+}
+
+// Replaces every ${param[index]} in a cut with the value for this split.
+// Cuts without "${" are returned unchanged.
+bool ResolveKinematicPlaceholders(const std::string& cut, const std::string& split, const std::string& bin_name,
+                                  const KinematicTables& tables, std::string& resolved) {
+    resolved.clear();
+    size_t pos = 0;
+    while (true) {
+        size_t start = cut.find("${", pos);
+        if (start == std::string::npos) {
+            resolved += cut.substr(pos);
+            return true;
+        }
+        resolved += cut.substr(pos, start - pos);
+
+        const std::string context = "bin '" + bin_name + "' (split '" + split + "'), cut \"" + cut + "\"";
+        size_t end = cut.find('}', start);
+        if (end == std::string::npos) {
+            std::cerr << "Error: unterminated placeholder in " << context << std::endl;
+            return false;
+        }
+        std::string placeholder = cut.substr(start, end - start + 1);
+        std::string body = cut.substr(start + 2, end - start - 2);
+
+        size_t open = body.find('[');
+        bool well_formed = open != std::string::npos && open > 0 && body.back() == ']' && open + 2 < body.size();
+        std::string param = well_formed ? body.substr(0, open) : "";
+        std::string index_str = well_formed ? body.substr(open + 1, body.size() - open - 2) : "";
+        for (char c : param)
+            if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_')) well_formed = false;
+        for (char c : index_str)
+            if (!std::isdigit(static_cast<unsigned char>(c))) well_formed = false;
+        if (!well_formed) {
+            std::cerr << "Error: malformed placeholder " << placeholder << " in " << context
+                      << "; expected ${parameter[index]}" << std::endl;
+            return false;
+        }
+
+        if (split.empty()) {
+            std::cerr << "Error: placeholder " << placeholder << " in " << context
+                      << " requires a split (e.g. samples.split: \"runSplit\") with a matching kinematics block" << std::endl;
+            return false;
+        }
+        auto table = tables.find(split);
+        if (table == tables.end()) {
+            std::cerr << "Error: placeholder " << placeholder << " in " << context
+                      << " but no kinematics." << split << " block is defined" << std::endl;
+            return false;
+        }
+        auto values = table->second.find(param);
+        if (values == table->second.end()) {
+            std::cerr << "Error: unknown kinematic parameter '" << param << "' in " << placeholder << " for " << context
+                      << "; kinematics." << split << " defines:";
+            for (const auto& p : table->second) std::cerr << " " << p.first;
+            std::cerr << std::endl;
+            return false;
+        }
+        size_t index = index_str.size() > 9 ? values->second.size() : std::stoul(index_str);
+        if (index >= values->second.size()) {
+            std::cerr << "Error: index " << index_str << " out of range for kinematics." << split << "." << param
+                      << " (size " << values->second.size() << ") in " << context << std::endl;
+            return false;
+        }
+        resolved += values->second[index];
+        pos = end + 1;
+    }
+}
+
+// Builds the bins of one split (binsplit "" for no split) from the bins: block,
+// resolving kinematic placeholders against that split's table.
+bool ResolveBinsForSplit(SimpleYAMLParser& parser, const std::string& binsplit,
+                         const KinematicTables& tables, std::vector<BinConfig>& bins) {
+    for (const auto& pair : parser.lists) {
+        if (pair.first.find("bins.") == 0) {
+            std::string full_key = pair.first;
+            std::string bin_name;
+
+            // Extract bin name from the key
+            size_t bins_pos = full_key.find("bins.");
+            if (bins_pos != std::string::npos) {
+                std::string remainder = full_key.substr(bins_pos + 5); // Remove "bins."
+                size_t dot_pos = remainder.find('.');
+
+                if (dot_pos != std::string::npos) {
+                    // Key like "bins.single_bin.cuts" - not used in our format
+                    continue;
+                } else {
+                    // Key like "bins.single_bin" - this is our cuts list
+                    bin_name = remainder;
+                }
+            }
+            if(binsplit != "")
+                bin_name += "_"+binsplit;
+
+            if (!bin_name.empty()) {
+                BinConfig bin_config;
+                bin_config.name = bin_name;
+                for (const auto& cut : pair.second) {
+                    std::string resolved;
+                    if (!ResolveKinematicPlaceholders(cut, binsplit, bin_name, tables, resolved))
+                        return false;
+                    bin_config.cuts.push_back(resolved);
+                }
+
+                // Look for description
+                std::string desc_key = "bins." + bin_name + ".description";
+                if (parser.values.count(desc_key)) {
+                    bin_config.description = parser.values[desc_key];
+                }
+
+                bins.push_back(bin_config);
+            }
+        }
+    }
+    return true;
+}
+}
+
 ConfigParser::ConfigParser() {
     SetDefaults();
 }
@@ -437,44 +602,16 @@ bool ConfigParser::LoadYAML(const std::string& config_file) {
         binsplits.push_back("");
     }
  
+    // Optional run-dependent kinematic vectors referenced by ${param[index]} in cuts
+    KinematicTables kinematic_tables;
+    if (!ReadKinematicTables(parser, kinematic_tables)) {
+        return false;
+    }
+
     // Parse bins
     for(auto binsplit : binsplits){
-        for (const auto& pair : parser.lists) {
-            if (pair.first.find("bins.") == 0) {
-                std::string full_key = pair.first;
-                std::string bin_name;
-                
-                // Extract bin name from the key
-                size_t bins_pos = full_key.find("bins.");
-                if (bins_pos != std::string::npos) {
-                    std::string remainder = full_key.substr(bins_pos + 5); // Remove "bins."
-                    size_t dot_pos = remainder.find('.');
-                    
-                    if (dot_pos != std::string::npos) {
-                        // Key like "bins.single_bin.cuts" - not used in our format
-                        continue;
-                    } else {
-                        // Key like "bins.single_bin" - this is our cuts list
-                        bin_name = remainder;
-                    }
-                }
-                if(binsplit != "")
-                    bin_name += "_"+binsplit;
-                
-                if (!bin_name.empty()) {
-                    BinConfig bin_config;
-                    bin_config.name = bin_name;
-                    bin_config.cuts = pair.second;
-                    
-                    // Look for description
-                    std::string desc_key = "bins." + bin_name + ".description";
-                    if (parser.values.count(desc_key)) {
-                        bin_config.description = parser.values[desc_key];
-                    }
-                    
-                    config_.bins.push_back(bin_config);
-                }
-            }
+        if (!ResolveBinsForSplit(parser, binsplit, kinematic_tables, config_.bins)) {
+            return false;
         }
     }
     
