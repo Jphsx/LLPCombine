@@ -4,7 +4,11 @@
 #include <sstream>
 #include <algorithm>
 #include <cstring>
+#include <cstdlib>
 #include <cctype>
+#include <cmath>
+#include <iterator>
+#include <set>
 
 namespace {
 bool ParseBool(const std::string& value) {
@@ -278,6 +282,329 @@ private:
     }
 };
 
+namespace {
+// Run-dependent kinematic vectors from the optional "kinematics:" block, as
+// split label -> parameter name -> values. Values keep their YAML text so a
+// resolved cut reads exactly as if the number had been written in place.
+typedef std::map<std::string, std::map<std::string, std::vector<std::string>>> KinematicTables;
+
+bool IsNumber(const std::string& s) {
+    if (s.empty()) return false;
+    char* end = nullptr;
+    std::strtod(s.c_str(), &end);
+    return end == s.c_str() + s.size();
+}
+
+// Collects kinematics.<split>.<param>: [v0, v1, ...] entries.
+bool ReadKinematicTables(const SimpleYAMLParser& parser, KinematicTables& tables) {
+    const std::string prefix = "kinematics.";
+    for (const auto& pair : parser.values) {
+        if (pair.first.find(prefix) == 0 && (!pair.second.empty() || !parser.lists.count(pair.first))) {
+            std::cerr << "Error: kinematics entry '" << pair.first << "' must be an inline array, e.g. [2000, 2600]" << std::endl;
+            return false;
+        }
+    }
+    for (const auto& pair : parser.lists) {
+        if (pair.first.find(prefix) != 0) continue;
+        std::string remainder = pair.first.substr(prefix.size());
+        size_t dot_pos = remainder.find('.');
+        // "kinematics.<split>" lists are not parameters: SimpleYAMLParser files the
+        // items of later top-level anchors (e.g. "bLep00: &bLep00") under the last
+        // section.subsection it opened, so they can land here.
+        if (dot_pos == std::string::npos) continue;
+        if (remainder.find('.', dot_pos + 1) != std::string::npos) {
+            std::cerr << "Error: kinematics entry '" << pair.first << "' must be nested as kinematics: <split>: <parameter>: [...]" << std::endl;
+            return false;
+        }
+        std::string split = remainder.substr(0, dot_pos);
+        std::string param = remainder.substr(dot_pos + 1);
+        for (const auto& value : pair.second) {
+            if (!IsNumber(value)) {
+                std::cerr << "Error: kinematics." << split << "." << param << " contains non-numeric value '" << value << "'" << std::endl;
+                return false;
+            }
+        }
+        tables[split][param] = pair.second;
+    }
+    return true;
+}
+
+// Replaces every ${param[index]} in a cut with the value for this split.
+// Cuts without "${" are returned unchanged.
+bool ResolveKinematicPlaceholders(const std::string& cut, const std::string& split, const std::string& bin_name,
+                                  const KinematicTables& tables, std::string& resolved) {
+    resolved.clear();
+    size_t pos = 0;
+    while (true) {
+        size_t start = cut.find("${", pos);
+        if (start == std::string::npos) {
+            resolved += cut.substr(pos);
+            return true;
+        }
+        resolved += cut.substr(pos, start - pos);
+
+        const std::string context = "bin '" + bin_name + "' (split '" + split + "'), cut \"" + cut + "\"";
+        size_t end = cut.find('}', start);
+        if (end == std::string::npos) {
+            std::cerr << "Error: unterminated placeholder in " << context << std::endl;
+            return false;
+        }
+        std::string placeholder = cut.substr(start, end - start + 1);
+        std::string body = cut.substr(start + 2, end - start - 2);
+
+        size_t open = body.find('[');
+        bool well_formed = open != std::string::npos && open > 0 && body.back() == ']' && open + 2 < body.size();
+        std::string param = well_formed ? body.substr(0, open) : "";
+        std::string index_str = well_formed ? body.substr(open + 1, body.size() - open - 2) : "";
+        for (char c : param)
+            if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_')) well_formed = false;
+        for (char c : index_str)
+            if (!std::isdigit(static_cast<unsigned char>(c))) well_formed = false;
+        if (!well_formed) {
+            std::cerr << "Error: malformed placeholder " << placeholder << " in " << context
+                      << "; expected ${parameter[index]}" << std::endl;
+            return false;
+        }
+
+        if (split.empty()) {
+            std::cerr << "Error: placeholder " << placeholder << " in " << context
+                      << " requires a split (e.g. samples.split: \"runSplit\") with a matching kinematics block" << std::endl;
+            return false;
+        }
+        auto table = tables.find(split);
+        if (table == tables.end()) {
+            std::cerr << "Error: placeholder " << placeholder << " in " << context
+                      << " but no kinematics." << split << " block is defined" << std::endl;
+            return false;
+        }
+        auto values = table->second.find(param);
+        if (values == table->second.end()) {
+            std::cerr << "Error: unknown kinematic parameter '" << param << "' in " << placeholder << " for " << context
+                      << "; kinematics." << split << " defines:";
+            for (const auto& p : table->second) std::cerr << " " << p.first;
+            std::cerr << std::endl;
+            return false;
+        }
+        size_t index = index_str.size() > 9 ? values->second.size() : std::stoul(index_str);
+        if (index >= values->second.size()) {
+            std::cerr << "Error: index " << index_str << " out of range for kinematics." << split << "." << param
+                      << " (size " << values->second.size() << ") in " << context << std::endl;
+            return false;
+        }
+        resolved += values->second[index];
+        pos = end + 1;
+    }
+}
+
+// Builds the bins of one split (binsplit "" for no split) from the bins: block,
+// resolving kinematic placeholders against that split's table.
+bool ResolveBinsForSplit(SimpleYAMLParser& parser, const std::string& binsplit,
+                         const KinematicTables& tables, std::vector<BinConfig>& bins) {
+    for (const auto& pair : parser.lists) {
+        if (pair.first.find("bins.") == 0) {
+            std::string full_key = pair.first;
+            std::string bin_name;
+
+            // Extract bin name from the key
+            size_t bins_pos = full_key.find("bins.");
+            if (bins_pos != std::string::npos) {
+                std::string remainder = full_key.substr(bins_pos + 5); // Remove "bins."
+                size_t dot_pos = remainder.find('.');
+
+                if (dot_pos != std::string::npos) {
+                    // Key like "bins.single_bin.cuts" - not used in our format
+                    continue;
+                } else {
+                    // Key like "bins.single_bin" - this is our cuts list
+                    bin_name = remainder;
+                }
+            }
+            if(binsplit != "")
+                bin_name += "_"+binsplit;
+
+            if (!bin_name.empty()) {
+                BinConfig bin_config;
+                bin_config.name = bin_name;
+                for (const auto& cut : pair.second) {
+                    std::string resolved;
+                    if (!ResolveKinematicPlaceholders(cut, binsplit, bin_name, tables, resolved))
+                        return false;
+                    bin_config.cuts.push_back(resolved);
+                }
+
+                // Look for description
+                std::string desc_key = "bins." + bin_name + ".description";
+                if (parser.values.count(desc_key)) {
+                    bin_config.description = parser.values[desc_key];
+                }
+
+                bins.push_back(bin_config);
+            }
+        }
+    }
+    return true;
+}
+
+std::string JoinYears(const std::set<std::string>& years) {
+    std::string joined;
+    for (const auto& y : years)
+        joined += (joined.empty() ? "" : ",") + y;
+    return joined.empty() ? "-" : joined;
+}
+
+double SumLumi(const std::set<std::string>& years) {
+    double lumi = 0.;
+    for (const auto& y : years)
+        lumi += LumiMap::YearLumi(y);
+    return lumi;
+}
+
+bool PromptProceed() {
+    std::string proceed;
+    std::cout << "Are you sure you want to proceed? y/n" << std::endl;
+    std::cin >> proceed;
+    return proceed == "y";
+}
+
+// Assigns each signal year its luminosity from the data years being run, one
+// run at a time:
+//   - signal years == data years in the run: each signal gets its year's lumi
+//   - a single signal year in the run: it gets the summed lumi of the run's data years
+//   - 2+ signal years but fewer than data years: prompt, then each gets its year's lumi
+// sampleLumis entries override the result. analysis.luminosity becomes the
+// summed lumi of all data years, which is also what signals without a year
+// suffix are scaled to.
+bool ResolveLuminosities(const SimpleYAMLParser& parser, AnalysisConfig& cfg,
+                         const std::set<std::string>& datayrs, const std::set<std::string>& sigyrs) {
+    cfg.sigLumi.clear();
+
+    std::vector<std::string> unsuffixed;
+    for (const auto& sig : cfg.signals)
+        if (LumiMap::SignalYearToken(sig).empty())
+            unsuffixed.push_back(sig);
+    if (!unsuffixed.empty() && !sigyrs.empty()) {
+        std::cerr << "Error: signals without a year suffix (" << unsuffixed.front()
+                  << ") cannot be mixed with year-suffixed signals (years " << JoinYears(sigyrs) << ")" << std::endl;
+        return false;
+    }
+
+    // sampleLumis: {2022: 20} -> "22"
+    std::map<std::string, double> userLumi;
+    const std::string prefix = "sampleLumis.";
+    for (const auto& pair : parser.values) {
+        if (pair.first.find(prefix) != 0)
+            continue;
+        std::string key = pair.first.substr(prefix.size());
+        std::string year = (key.size() == 4 && key.compare(0, 2, "20") == 0) ? key.substr(2) : key;
+        if (!LumiMap::IsKnownYear(year)) {
+            std::cout << "WARNING: sampleLumis year " << key << " is not a known data-taking year. Not setting lumi." << std::endl;
+            continue;
+        }
+        if (sigyrs.count(year) == 0) {
+            std::cout << "Signal for year " << year << " not specified. Not setting lumi." << std::endl;
+            continue;
+        }
+        userLumi[year] = std::stod(pair.second);
+    }
+
+    if (datayrs.empty()) {
+        std::cout << "WARNING: no data samples specified, so the year-by-year luminosity map is not applied. "
+                  << "Year-suffixed signals use sampleLumis where given, everything else analysis.luminosity ("
+                  << cfg.luminosity << " fb^-1)." << std::endl;
+        cfg.sigLumi = userLumi;
+        return true;
+    }
+
+    double datalumi = SumLumi(datayrs);
+    if (parser.values.count("analysis.luminosity") && std::lround(cfg.luminosity) != std::lround(datalumi)) {
+        std::cout << "WARNING: analysis.luminosity is " << cfg.luminosity << " fb^-1 but data years "
+                  << JoinYears(datayrs) << " amount to " << datalumi << " fb^-1. Using " << datalumi << " fb^-1." << std::endl;
+    }
+    cfg.luminosity = datalumi;
+
+    if (!unsuffixed.empty() && cfg.sampleSplit != "none") {
+        std::cout << "WARNING: signal " << unsuffixed.front() << " has no year suffix and will not enter any "
+                  << cfg.sampleSplit << " bin. Give it a _YY suffix to include it in the split fit." << std::endl;
+    }
+
+    std::map<std::string, std::string> source;
+    std::vector<std::string> underscaled;
+    for (const auto& run : LumiMap::Runs()) {
+        std::set<std::string> D, S;
+        for (const auto& y : datayrs)
+            if (LumiMap::RunOfYear(y) == run) D.insert(y);
+        for (const auto& y : sigyrs)
+            if (LumiMap::RunOfYear(y) == run) S.insert(y);
+
+        if (S.empty()) {
+            if (!D.empty() && !sigyrs.empty())
+                std::cout << "WARNING: " << run << " has data years " << JoinYears(D)
+                          << " but no signal sample; its bins will get no signal." << std::endl;
+            continue;
+        }
+        if (D.empty()) {
+            std::cerr << "Error: signal years " << JoinYears(S) << " belong to " << run
+                      << " but no " << run << " data is specified" << std::endl;
+            return false;
+        }
+        if (S.size() == 1) {
+            cfg.sigLumi[*S.begin()] = SumLumi(D);
+            source[*S.begin()] = run + " total";
+            continue;
+        }
+        std::set<std::string> nodata;
+        std::set_difference(S.begin(), S.end(), D.begin(), D.end(), std::inserter(nodata, nodata.end()));
+        if (!nodata.empty()) {
+            std::cerr << "Error: " << run << " has several signal years (" << JoinYears(S) << ") but no data for "
+                      << JoinYears(nodata) << " (data years " << JoinYears(D) << ")" << std::endl;
+            return false;
+        }
+        for (const auto& y : S) {
+            cfg.sigLumi[y] = LumiMap::YearLumi(y);
+            source[y] = "year";
+        }
+        if (S != D)
+            underscaled.push_back(run + " (signal " + JoinYears(S) + ", data " + JoinYears(D) + ")");
+    }
+
+    if (!userLumi.empty()) {
+        for (const auto& pair : userLumi) {
+            double expected = cfg.sigLumi[pair.first];
+            if (std::lround(pair.second) != std::lround(expected))
+                std::cout << "WARNING: sampleLumis for 20" << pair.first << " is " << pair.second
+                          << " fb^-1 but the data years would give it " << expected << " fb^-1." << std::endl;
+            cfg.sigLumi[pair.first] = pair.second;
+            source[pair.first] = "sampleLumis";
+        }
+        if (sigyrs != datayrs) {
+            std::cout << "WARNING: sampleLumis is set but the signal years (" << JoinYears(sigyrs)
+                      << ") do not match the data years (" << JoinYears(datayrs) << ")." << std::endl;
+            if (!PromptProceed())
+                return false;
+        }
+    }
+    else if (!underscaled.empty()) {
+        std::cout << "WARNING: fewer signal years than data years in:";
+        for (const auto& u : underscaled)
+            std::cout << " " << u;
+        std::cout << ". Only the signal years' luminosities are applied, so the signal yields do not "
+                  << "correspond to the full data luminosity of the run." << std::endl;
+        if (!PromptProceed())
+            return false;
+    }
+
+    std::cout << "=== Signal luminosity ===" << std::endl;
+    for (const auto& sig : cfg.signals) {
+        std::string year = LumiMap::SignalYearToken(sig);
+        double lumi = year.empty() ? cfg.luminosity : cfg.sigLumi[year];
+        std::string src = year.empty() ? "all data years" : source[year];
+        std::string run = year.empty() ? "all" : LumiMap::RunOfYear(year);
+        std::cout << "  " << run << "  " << sig << "  " << lumi << " fb^-1 (" << src << ")" << std::endl;
+    }
+    return true;
+}
+}
+
 ConfigParser::ConfigParser() {
     SetDefaults();
 }
@@ -364,44 +691,25 @@ bool ConfigParser::LoadYAML(const std::string& config_file) {
     	config_.sampleSplit = "none";
     }
  
-    //get years of specified data
-    std::vector<std::string> datayrs;
-    for(auto data : config_.data){
-        datayrs.push_back( data.substr(data.size() - 2) );
+    //get years of specified data and signals
+    std::set<std::string> datayrs;
+    for (const auto& data : config_.data) {
+        std::string year = LumiMap::DataYearToken(data);
+        if (year.empty()) {
+            std::cerr << "Error: cannot determine the data-taking year of data sample '" << data << "'" << std::endl;
+            return false;
+        }
+        datayrs.insert(year);
+    }
+    std::set<std::string> sigyrs;
+    for (const auto& sig : config_.signals) {
+        std::string year = LumiMap::SignalYearToken(sig);
+        if (!year.empty())
+            sigyrs.insert(year);
     }
 
- 
-    //get years of specified signals
-    std::vector<std::string> sigyrs;
-    for (auto sig : config_.signals){
-	if(sig.find("_") != std::string::npos)
-        sigyrs.push_back( sig.substr(sig.find("_")+1) );
-    }
- 
-    //parse signal lumis
-    double totsiglumi = 0;
-    for (const auto& pair : parser.values) {
-        if (pair.first.find("sampleLumis.") == 0){
-            //if want to change what the year key is or suffix is for sig_YEAR, can change that parsing here
-            std::string year = pair.first.substr(pair.first.find(".")+3);
-            //make sure year in lumikey is included in signal list
-            if(std::count(sigyrs.begin(), sigyrs.end(), year) == 0){
-                std::cout << "Signal for year " << year << " not specified. Not setting lumi." << std::endl;
-                continue; 
-            }
-            config_.sigLumi[year] = std::stod(pair.second);
-	        totsiglumi += std::stod(pair.second);		
-        }
-    }
-    //if 1+ years specified in lumi dict and 2+ years specified in signal, but their total lumi doesnt add up to the overall lumi, throw warning
-    //if no years specified, set sig lumi to overall lumi (same for only 1 year)
-    if((config_.sigLumi.size() > 0 || sigyrs.size() > 1) && totsiglumi != config_.luminosity){
-	std::string proceed;
-        std::cout << "WARNING: Set total luminosity to " << config_.luminosity << " but specified signal year-by-year luminosity is " << totsiglumi << " total." << std::endl;
-        std::cout << "Are you sure you want to proceed? y/n" << std::endl;
-        std:: cin >> proceed;
-        if(proceed != "y")
-                return false;
+    if (!ResolveLuminosities(parser, config_, datayrs, sigyrs)) {
+        return false;
     }
 
     if (parser.values.count("mc_closure.enabled")) {
@@ -425,9 +733,6 @@ bool ConfigParser::LoadYAML(const std::string& config_file) {
 
     std::vector<std::string> binsplits;
     if(config_.sampleSplit == config_.splitTypes[1]){ // year split
-        //sorting required for set intersection
-        std::sort(datayrs.begin(), datayrs.end());
-        std::sort(sigyrs.begin(), sigyrs.end());
         std::set_intersection(datayrs.begin(), datayrs.end(), sigyrs.begin(), sigyrs.end(),std::back_inserter(binsplits));
     }
     else if(config_.sampleSplit == config_.splitTypes[2]){ // run split
@@ -437,44 +742,16 @@ bool ConfigParser::LoadYAML(const std::string& config_file) {
         binsplits.push_back("");
     }
  
+    // Optional run-dependent kinematic vectors referenced by ${param[index]} in cuts
+    KinematicTables kinematic_tables;
+    if (!ReadKinematicTables(parser, kinematic_tables)) {
+        return false;
+    }
+
     // Parse bins
     for(auto binsplit : binsplits){
-        for (const auto& pair : parser.lists) {
-            if (pair.first.find("bins.") == 0) {
-                std::string full_key = pair.first;
-                std::string bin_name;
-                
-                // Extract bin name from the key
-                size_t bins_pos = full_key.find("bins.");
-                if (bins_pos != std::string::npos) {
-                    std::string remainder = full_key.substr(bins_pos + 5); // Remove "bins."
-                    size_t dot_pos = remainder.find('.');
-                    
-                    if (dot_pos != std::string::npos) {
-                        // Key like "bins.single_bin.cuts" - not used in our format
-                        continue;
-                    } else {
-                        // Key like "bins.single_bin" - this is our cuts list
-                        bin_name = remainder;
-                    }
-                }
-                if(binsplit != "")
-                    bin_name += "_"+binsplit;
-                
-                if (!bin_name.empty()) {
-                    BinConfig bin_config;
-                    bin_config.name = bin_name;
-                    bin_config.cuts = pair.second;
-                    
-                    // Look for description
-                    std::string desc_key = "bins." + bin_name + ".description";
-                    if (parser.values.count(desc_key)) {
-                        bin_config.description = parser.values[desc_key];
-                    }
-                    
-                    config_.bins.push_back(bin_config);
-                }
-            }
+        if (!ResolveBinsForSplit(parser, binsplit, kinematic_tables, config_.bins)) {
+            return false;
         }
     }
     

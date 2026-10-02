@@ -17,6 +17,41 @@ sampleLumis:
   2023: 40
   2018: 80
 
+# Run-dependent kinematic boundaries, referenced in cuts as ${name[index]}.
+# Run2 and Run3 are currently identical to the original literal values.
+kinematics:
+  Run2:
+    kin_Ms: [2000]  # kin: preselection floor
+    kin_Rs: [0.15]
+    lep_Ms: [2000, 2600]  # bLep*: Ge1Lep SV
+    lep_Rs: [0.15, 0.3]
+    had_Ms: [2000, 2600, 3000]  # bHad*: Ge1Had SV
+    had_Rs: [0.15, 0.35]
+    del_Ms: [2000, 2600]  # DelayedBin*
+    del_Rs: [0.15, 0.35]
+    svdel_Ms: [2000]  # SVDelayedBin*
+    svdel_Rs: [0.15, 0.3]
+    eq2_Ms: [2500, 2700]  # eq2b*: 2 prompt photons
+    eq2_Rs: [0.3]
+    eq1_Ms: [2500, 2700]  # eq1b*: 1 prompt photon
+    eq1_Rs: [0.35, 0.45]
+
+  Run3:
+    kin_Ms: [2000]  # kin: preselection floor
+    kin_Rs: [0.15]
+    lep_Ms: [2000, 2600]  # bLep*: Ge1Lep SV
+    lep_Rs: [0.15, 0.3]
+    had_Ms: [2000, 2600, 3000]  # bHad*: Ge1Had SV
+    had_Rs: [0.15, 0.35]
+    del_Ms: [2000, 2600]  # DelayedBin*
+    del_Rs: [0.15, 0.35]
+    svdel_Ms: [2000]  # SVDelayedBin*
+    svdel_Rs: [0.15, 0.3]
+    eq2_Ms: [2500, 2700]  # eq2b*: 2 prompt photons
+    eq2_Rs: [0.3]
+    eq1_Ms: [2500, 2700]  # eq1b*: 1 prompt photon
+    eq1_Rs: [0.35, 0.45]
+
 baseline_cuts: &baseline_cuts
   - "(selCMet > 150)"
 
@@ -24,7 +59,7 @@ Cleaning: &Cleaning
   - "((Flag_MetFilters == 1) && (rjrPTS[0] < 150) && ((Trigger_PFMET120_PFMHT120_IDTight == 1)||(Trigger_PFMET120_PFMHT120_IDTight_PFHT60 == 1)||(Trigger_PFMETNoMu120_PFMHTNoMu120_IDTight)||(Trigger_PFMETNoMu120_PFMHTNoMu120_IDTight_PFHT60)) && (!Flag_hemVeto))"
 
 kin: &kin
-  - "((rjr_Ms[0] >= 2000) && (rjr_Rs[0] >= 0.15))"
+  - "((rjr_Ms[0] >= ${kin_Ms[0]}) && (rjr_Rs[0] >= ${kin_Rs[0]}))"
 
 
 
@@ -51,65 +86,65 @@ SVgeHad1_CR: &SVgeHad1_CR
 ################################ Ge1Lep Kinematic Bins (2 Ms x 2 Rs = 4 bins) ################################
 
 bLep00: &bLep00
-  - "((rjr_Ms[0] >= 2000) && (rjr_Ms[0] < 2600) && (rjr_Rs[0] >= 0.15) && (rjr_Rs[0] < 0.3))"
+  - "((rjr_Ms[0] >= ${lep_Ms[0]}) && (rjr_Ms[0] < ${lep_Ms[1]}) && (rjr_Rs[0] >= ${lep_Rs[0]}) && (rjr_Rs[0] < ${lep_Rs[1]}))"
 bLep10: &bLep10
-  - "((rjr_Ms[0] >= 2600) && (rjr_Rs[0] >= 0.15) && (rjr_Rs[0] < 0.3))"
+  - "((rjr_Ms[0] >= ${lep_Ms[1]}) && (rjr_Rs[0] >= ${lep_Rs[0]}) && (rjr_Rs[0] < ${lep_Rs[1]}))"
 bLep01: &bLep01
-  - "((rjr_Ms[0] >= 2000) && (rjr_Ms[0] < 2600) && (rjr_Rs[0] >= 0.3))"
+  - "((rjr_Ms[0] >= ${lep_Ms[0]}) && (rjr_Ms[0] < ${lep_Ms[1]}) && (rjr_Rs[0] >= ${lep_Rs[1]}))"
 bLep11: &bLep11
-  - "((rjr_Ms[0] >= 2600) && (rjr_Rs[0] >= 0.3))"
+  - "((rjr_Ms[0] >= ${lep_Ms[1]}) && (rjr_Rs[0] >= ${lep_Rs[1]}))"
 
 ################################ Ge1Had Kinematic Bins (2 low-Rs + 3 high-Rs = 5 bins) ################################
 
 bHad00: &bHad00
-  - "((rjr_Ms[0] >= 2000) && (rjr_Ms[0] < 2600) && (rjr_Rs[0] >= 0.15) && (rjr_Rs[0] < 0.35))"
+  - "((rjr_Ms[0] >= ${had_Ms[0]}) && (rjr_Ms[0] < ${had_Ms[1]}) && (rjr_Rs[0] >= ${had_Rs[0]}) && (rjr_Rs[0] < ${had_Rs[1]}))"
 bHad10: &bHad10
-  - "((rjr_Ms[0] >= 2600) && (rjr_Rs[0] >= 0.15) && (rjr_Rs[0] < 0.35))"
+  - "((rjr_Ms[0] >= ${had_Ms[1]}) && (rjr_Rs[0] >= ${had_Rs[0]}) && (rjr_Rs[0] < ${had_Rs[1]}))"
 bHad01: &bHad01
-  - "((rjr_Ms[0] >= 2000) && (rjr_Ms[0] < 2600) && (rjr_Rs[0] >= 0.35))"
+  - "((rjr_Ms[0] >= ${had_Ms[0]}) && (rjr_Ms[0] < ${had_Ms[1]}) && (rjr_Rs[0] >= ${had_Rs[1]}))"
 bHad11: &bHad11
-  - "((rjr_Ms[0] >= 2600) && (rjr_Ms[0] < 3000) && (rjr_Rs[0] >= 0.35))"
+  - "((rjr_Ms[0] >= ${had_Ms[1]}) && (rjr_Ms[0] < ${had_Ms[2]}) && (rjr_Rs[0] >= ${had_Rs[1]}))"
 bHad21: &bHad21
-  - "((rjr_Ms[0] >= 3000) && (rjr_Rs[0] >= 0.35))"
+  - "((rjr_Ms[0] >= ${had_Ms[2]}) && (rjr_Rs[0] >= ${had_Rs[1]}))"
 
 DelayedBin00: &DelayedBin00
-  - "((rjr_Ms[0] >= 2000) && (rjr_Ms[0] < 2600) && (rjr_Rs[0] >= 0.15) && (rjr_Rs[0] < 0.35))"
+  - "((rjr_Ms[0] >= ${del_Ms[0]}) && (rjr_Ms[0] < ${del_Ms[1]}) && (rjr_Rs[0] >= ${del_Rs[0]}) && (rjr_Rs[0] < ${del_Rs[1]}))"
 DelayedBin10: &DelayedBin10
-  - "((rjr_Ms[0] >= 2600) && (rjr_Rs[0] >= 0.15) && (rjr_Rs[0] < 0.35))"
+  - "((rjr_Ms[0] >= ${del_Ms[1]}) && (rjr_Rs[0] >= ${del_Rs[0]}) && (rjr_Rs[0] < ${del_Rs[1]}))"
 DelayedBin01: &DelayedBin01
-  - "((rjr_Ms[0] >= 2000) && (rjr_Ms[0] < 2600) && (rjr_Rs[0] >= 0.35))"
+  - "((rjr_Ms[0] >= ${del_Ms[0]}) && (rjr_Ms[0] < ${del_Ms[1]}) && (rjr_Rs[0] >= ${del_Rs[1]}))"
 DelayedBin11: &DelayedBin11
-  - "((rjr_Ms[0] >= 2600) && (rjr_Rs[0] >= 0.35))"
+  - "((rjr_Ms[0] >= ${del_Ms[1]}) && (rjr_Rs[0] >= ${del_Rs[1]}))"
     #DelayedBin00: &DelayedBin00
     #  - "(rjr_Ms[0] >= 2000)"
     #  - "(rjr_Rs[0] >= 0.3)"
 
 SVDelayedBin00: &SVDelayedBin00
-  - "((rjr_Ms[0] >= 2000) && (rjr_Rs[0] >= 0.15) && (rjr_Rs[0] < 0.3))"
+  - "((rjr_Ms[0] >= ${svdel_Ms[0]}) && (rjr_Rs[0] >= ${svdel_Rs[0]}) && (rjr_Rs[0] < ${svdel_Rs[1]}))"
 SVDelayedBin01: &SVDelayedBin01
-  - "((rjr_Ms[0] >= 2000) && (rjr_Rs[0] >= 0.3))"
+  - "((rjr_Ms[0] >= ${svdel_Ms[0]}) && (rjr_Rs[0] >= ${svdel_Rs[1]}))"
 
 eq2b00: &eq2b00
-  - "((rjr_Ms[0] >= 2500) && (rjr_Ms[0] < 2700) && (rjr_Rs[0] < 0.3))"
+  - "((rjr_Ms[0] >= ${eq2_Ms[0]}) && (rjr_Ms[0] < ${eq2_Ms[1]}) && (rjr_Rs[0] < ${eq2_Rs[0]}))"
 eq2b10: &eq2b10
-  - "((rjr_Ms[0] >= 2700) && (rjr_Rs[0] < 0.3))"
+  - "((rjr_Ms[0] >= ${eq2_Ms[1]}) && (rjr_Rs[0] < ${eq2_Rs[0]}))"
 eq2b01: &eq2b01
-  - "((rjr_Ms[0] >= 2500) && (rjr_Ms[0] < 2700) && (rjr_Rs[0] >= 0.3))"
+  - "((rjr_Ms[0] >= ${eq2_Ms[0]}) && (rjr_Ms[0] < ${eq2_Ms[1]}) && (rjr_Rs[0] >= ${eq2_Rs[0]}))"
 eq2b11: &eq2b11
-  - "((rjr_Ms[0] >= 2700) && (rjr_Rs[0] >= 0.3))"
+  - "((rjr_Ms[0] >= ${eq2_Ms[1]}) && (rjr_Rs[0] >= ${eq2_Rs[0]}))"
 
 eq1b00: &eq1b00
-  - "((rjr_Ms[0] >= 2500) && (rjr_Ms[0] < 2700) && (rjr_Rs[0] < 0.35))"
+  - "((rjr_Ms[0] >= ${eq1_Ms[0]}) && (rjr_Ms[0] < ${eq1_Ms[1]}) && (rjr_Rs[0] < ${eq1_Rs[0]}))"
 eq1b10: &eq1b10
-  - "((rjr_Ms[0] >= 2700) && (rjr_Rs[0] < 0.35))"
+  - "((rjr_Ms[0] >= ${eq1_Ms[1]}) && (rjr_Rs[0] < ${eq1_Rs[0]}))"
 eq1b01: &eq1b01
-  - "((rjr_Ms[0] >= 2500) && (rjr_Ms[0] < 2700) && (rjr_Rs[0] >= 0.35) && (rjr_Rs[0] < 0.45))"
+  - "((rjr_Ms[0] >= ${eq1_Ms[0]}) && (rjr_Ms[0] < ${eq1_Ms[1]}) && (rjr_Rs[0] >= ${eq1_Rs[0]}) && (rjr_Rs[0] < ${eq1_Rs[1]}))"
 eq1b11: &eq1b11
-  - "((rjr_Ms[0] >= 2700) && (rjr_Rs[0] >= 0.35) && (rjr_Rs[0] < 0.45))"
+  - "((rjr_Ms[0] >= ${eq1_Ms[1]}) && (rjr_Rs[0] >= ${eq1_Rs[0]}) && (rjr_Rs[0] < ${eq1_Rs[1]}))"
 eq1b02: &eq1b02
-  - "((rjr_Ms[0] >= 2500) && (rjr_Ms[0] < 2700) && (rjr_Rs[0] >= 0.45))"
+  - "((rjr_Ms[0] >= ${eq1_Ms[0]}) && (rjr_Ms[0] < ${eq1_Ms[1]}) && (rjr_Rs[0] >= ${eq1_Rs[1]}))"
 eq1b12: &eq1b12
-  - "((rjr_Ms[0] >= 2700) && (rjr_Rs[0] >= 0.45))"
+  - "((rjr_Ms[0] >= ${eq1_Ms[1]}) && (rjr_Rs[0] >= ${eq1_Rs[1]}))"
 
 
 ################################################################################################################################################################################################################################################################################################

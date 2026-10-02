@@ -1,0 +1,705 @@
+# Compressed analysis prototype
+analysis:
+  name: "LittleGuy_Compressed_FullRegions_AnalysisConfig"
+  luminosity: 421.0
+  output_json: "LittleGuy_Compressed_FullRegions_AnalysisConfig.json"
+
+samples:
+  signals: ["gogoGZ"]
+  data: ["MET16","MET17","MET18","MET22","MET23","MET24","MET25"]
+  split: "runSplit" # required: ${...} placeholders resolve per run
+
+# Run-dependent kinematic boundaries, referenced in cuts as ${name[index]}.
+# Run2 and Run3 are currently identical to the original literal values.
+kinematics:
+  Run2:
+    isr_PtIsr: [500, 600, 900, 300, 500]  # PtIsr floor for kinSV, kinDelPho, kinEq2Pho, kinMixDel, kinMixPrompt
+    isr_RIsr: [0.4, 0.6, 0.75, 0.9]  # RISR bin edges
+
+  Run3:
+    isr_PtIsr: [500, 600, 900, 300, 500]  # PtIsr floor for kinSV, kinDelPho, kinEq2Pho, kinMixDel, kinMixPrompt
+    isr_RIsr: [0.4, 0.6, 0.75, 0.9]  # RISR bin edges
+
+baseline_cuts: &baseline_cuts
+  - "(selCMet > 150)"
+
+Cleaning: &Cleaning
+  - "((Flag_MetFilters == 1) && (rjrPTS[0] < 200) && ((Trigger_PFMET120_PFMHT120_IDTight == 1)||(Trigger_PFMET120_PFMHT120_IDTight_PFHT60 == 1)||(Trigger_PFMETNoMu120_PFMHTNoMu120_IDTight)||(Trigger_PFMETNoMu120_PFMHTNoMu120_IDTight_PFHT60)) && (Flag_hemVeto==0))"
+
+##############################################################################
+# SV selections
+##############################################################################
+
+anySV: &anySV
+  - "(passNSVGe1Selection == 1)"
+
+eq1HadSV_CR: &eq1HadSV_CR
+  - "(passNHadEq1SelectionLowDxySigCR == 1)"
+
+geq1SV_CR: &geq1SV_CR
+  - "(passNSVGe1SelectionLowDxySigCR == 1)"
+
+geq1SV_SR: &geq1SV_SR
+  - "(passNSVGe1SelectionHighDxySigSR == 1)"
+  
+##############################################################################
+# Photon selections
+##############################################################################
+
+noPho: &noPho
+  - "(nBaseLinePhotons == 0)"
+  
+geq1Pho: &geq1Pho
+  - "(nBaseLinePhotons >= 1)"
+
+noSV: &noSV
+  - "(passNSVEq0Selection == 1)"
+
+# ABCD pass definitions
+geq1PhoBHEarly: &geq1PhoBHEarly
+  - "(passNPhoGe1SelectionEarlyBeamHaloCR == 1)"
+  #- "(nBaseLinePhotons > 0)"
+  ## >= 1 BH photon early
+  #- "((nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] >= 0.917252 && baseLinePhoton_WTimeSig[0] < -2.5) || ( nBaseLinePhotons == 2 && ((baseLinePhoton_beamHaloCNNScore[0] >= 0.917252 && baseLinePhoton_WTimeSig[0] < -2.5) || (baseLinePhoton_beamHaloCNNScore[1] >= 0.917252 && baseLinePhoton_WTimeSig[1] < -2.5)) ) )"
+
+geq1PhoBHLate: &geq1PhoBHLate
+  - "(passNPhoGe1SelectionLateBeamHaloCR == 1)"
+  #- "(nBaseLinePhotons > 0)"
+  ## >= 1 BH photon late
+  #- "((nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] >= 0.917252 && baseLinePhoton_WTimeSig[0] >= 2.5) || ( nBaseLinePhotons == 2 && ((baseLinePhoton_beamHaloCNNScore[0] >= 0.917252 && baseLinePhoton_WTimeSig[0] >= 2.5) || (baseLinePhoton_beamHaloCNNScore[1] >= 0.917252 && baseLinePhoton_WTimeSig[1] >= 2.5)) ))"
+
+# ==0 BH photons
+# >= 1 notBH photons
+# >= 1 nonprompt
+geq1PhoNotBHEarly: &geq1PhoNotBHEarly
+  - "(passNPhoGe1SelectionEarlyNotBHCR == 1)"
+  #- "(nBaseLinePhotons > 0)"
+  ## == 0 BH photons
+  #- "(( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252) || (nBaseLinePhotons == 2 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252 && baseLinePhoton_beamHaloCNNScore[1] < 0.917252) ) )"
+  ## >=1 notBH photons early
+  #- "( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] < 0.185 && baseLinePhoton_WTimeSig[0] < -2.5) || ( nBaseLinePhotons == 2 && ((baseLinePhoton_beamHaloCNNScore[0] < 0.185 && baseLinePhoton_WTimeSig[0] < -2.5) || (baseLinePhoton_beamHaloCNNScore[1] < 0.185 && baseLinePhoton_WTimeSig[1] < -2.5)) ) )"
+
+geq1PhoNotBHLate: &geq1PhoNotBHLate
+  - "(passNPhoGe1SelectionLateNotBHTightIsoSR == 1)"
+  #- "(nBaseLinePhotons > 0)"
+  ## == 0 BH photons
+  #- "(( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252) || (nBaseLinePhotons == 2 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252 && baseLinePhoton_beamHaloCNNScore[1] < 0.917252) ) )"
+  ## >=1 notBH photons late
+  #- "( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] < 0.185 && baseLinePhoton_WTimeSig[0] >= 2.5) || ( nBaseLinePhotons == 2 && ((baseLinePhoton_beamHaloCNNScore[0] < 0.185 && baseLinePhoton_WTimeSig[0] >= 2.5) || (baseLinePhoton_beamHaloCNNScore[1] < 0.185 && baseLinePhoton_WTimeSig[1] >= 2.5)) ) )"
+
+# late notBH tight-iso photon without the BH veto (MixDel shape-transfer bins)
+geq1PhoNotBHLateSignal: &geq1PhoNotBHLateSignal
+  - "(passNPhoGe1SelectionLateSignal == 1)"
+
+# prompt-photon ABCD cells for bkgprompt in DelPho
+geq1PhoMedIsoEarly: &geq1PhoMedIsoEarly
+  - "(passNPhoGe1SelectionEarlyMedIsoCR == 1)"
+
+geq1PhoMedIsoLate: &geq1PhoMedIsoLate
+  - "(passNPhoGe1SelectionLateMedIsoCR == 1)"
+
+geq1PhoTightIsoEarly: &geq1PhoTightIsoEarly
+  - "(passNPhoGe1SelectionEarlyTightIsoCR == 1)"
+
+noBHPhotons: &noBHPhotons
+  - "(nblBHPhotons == 0)"
+  #- "(( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252) || (nBaseLinePhotons == 2 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252 && baseLinePhoton_beamHaloCNNScore[1] < 0.917252) ) )"
+
+noNonPromptPhotons: &noNonPromptPhotons
+  - "(nblNonpromptPhotons == 0)"
+  #- "( (nBaseLinePhotons == 1 && (baseLinePhoton_WTimeSig[0] < 2.5 && baseLinePhoton_WTimeSig[0] > -2.5)) || (nBaseLinePhotons == 2 && ( baseLinePhoton_WTimeSig[0] < 2.5 && baseLinePhoton_WTimeSig[0] > -2.5) && ( baseLinePhoton_WTimeSig[1] < 2.5 && baseLinePhoton_WTimeSig[1] > -2.5)) )"
+
+# ABCD veto definitions
+vetoGeq1PhoBHEarly: &vetoGeq1PhoBHEarly
+   - "(!passNPhoGe1SelectionEarlyBeamHaloCR)" 
+  #- "!((nBaseLinePhotons > 0) && ROOT::VecOps::Any((baseLinePhoton_beamHaloCNNScore >= 0.917252) && (baseLinePhoton_WTimeSig < -2.5)))"
+
+vetoGeq1PhoBHLate: &vetoGeq1PhoBHLate
+  - "(!passNPhoGe1SelectionLateBeamHaloCR)"
+  #- "!(nBaseLinePhotons > 0 && ROOT::VecOps::Any((baseLinePhoton_beamHaloCNNScore >= 0.917252) && (baseLinePhoton_WTimeSig >= 2.5)))"
+
+vetoGeq1PhoNotBHEarly: &vetoGeq1PhoNotBHEarly
+  - "(!passNPhoGe1SelectionEarlyNotBHCR)"
+  #- "!(nBaseLinePhotons > 0 && ROOT::VecOps::Any((baseLinePhoton_beamHaloCNNScore < 0.185) && (baseLinePhoton_WTimeSig < -2.5)))"
+
+vetoGeq1PhoNotBHLate: &vetoGeq1PhoNotBHLate
+  - "(!passNPhoGe1SelectionLateNotBHTightIsoSR)"
+  #- "!(nBaseLinePhotons > 0 && ROOT::VecOps::Any((baseLinePhoton_beamHaloCNNScore < 0.185) && (baseLinePhoton_WTimeSig > 2.5)))"
+
+vetoPromptPho: &vetoPromptPho
+  - "(nblPromptPhotons == 0)"
+  #- "!(nBaseLinePhotons > 0 && ROOT::VecOps::Any(abs(baseLinePhoton_WTimeSig) < 2.5))"
+
+# Prompt Photon Regions
+eq2Pho: &eq2Pho
+  - "(nBaseLinePhotons == 2)"
+  
+phoSR_eq2prompt: &phoSR_eq2prompt
+  - "(passNPhoEq2SelectionCompPromptTightIsoSR == 1)"
+  #- "((nBaseLinePhotons == 2) && ROOT::VecOps::Any(baseLinePhoton_isoANNScore >= 0.96))"
+
+phoCR_eq2prompt: &phoCR_eq2prompt
+  - "(passNPhoEq2SelectionCompPromptMedIsoCR == 1)"
+  #- "((nBaseLinePhotons == 2) && !ROOT::VecOps::Any(baseLinePhoton_isoANNScore >= 0.96))"
+
+##############################################################################
+# Kinematic cuts (per channel group)
+##############################################################################
+
+# Ch 1: ptISR > 500, nSVisObjects > 0, RISR floor at 0.4
+kinSV: &kinSV
+  - "(rjrIsr_PtIsr > ${isr_PtIsr[0]} && rjrIsr_nSVisObjects > 0 && rjrIsr_RIsr >= ${isr_RIsr[0]})"
+
+# Ch 2: ptISR > 600, nSVisObjects > 2 (RISR handled by bin)
+kinDelPho: &kinDelPho
+  - "(rjrIsr_PtIsr > ${isr_PtIsr[1]} && rjrIsr_nSVisObjects > 0)"
+
+# Ch 3: ptISR > 900, nSVisObjects > 0, RISR floor at 0.4
+kinEq2Pho: &kinEq2Pho
+  - "(rjrIsr_PtIsr > ${isr_PtIsr[2]} && rjrIsr_nSVisObjects > 0 && rjrIsr_RIsr >= ${isr_RIsr[0]})"
+
+# Ch 4: ptISR > 300, nSVisObjects > 0 (RISR handled by bin)
+kinMixDel: &kinMixDel
+  - "(rjrIsr_PtIsr > ${isr_PtIsr[3]} && rjrIsr_nSVisObjects > 0)"
+
+# Ch 5: ptISR > 500, nSVisObjects > 0, RISR floor at 0.4
+kinMixPrompt: &kinMixPrompt
+  - "(rjrIsr_PtIsr > ${isr_PtIsr[4]} && rjrIsr_nSVisObjects > 0 && rjrIsr_RIsr >= ${isr_RIsr[0]})"
+
+##############################################################################
+# RISR bins
+##############################################################################
+
+# 3-bin [0.4, 0.6, 0.75] — Ch 1 and Ch 5
+# 2-bin [0.6, 0.75) and >= 0.75 — Ch 2 and Ch 4 (b10 and b20)
+b00: &b00
+  - "((rjrIsr_RIsr >= ${isr_RIsr[0]}) && (rjrIsr_RIsr < ${isr_RIsr[1]}))"
+b10: &b10
+  - "((rjrIsr_RIsr >= ${isr_RIsr[1]}) && (rjrIsr_RIsr < ${isr_RIsr[2]}))"
+b20: &b20
+  - "(rjrIsr_RIsr >= ${isr_RIsr[2]})"
+
+# 4-bin [0.4, 0.6, 0.75, 0.9] — Ch 3 (b00 and b10 shared above)
+b20p: &b20p
+  - "((rjrIsr_RIsr >= ${isr_RIsr[2]}) && (rjrIsr_RIsr < ${isr_RIsr[3]}))"
+b30p: &b30p
+  - "(rjrIsr_RIsr >= ${isr_RIsr[3]})"
+
+##############################################################################
+# Bins
+##############################################################################
+
+bins:
+
+  # ── Ch 1: Inclusive SV + Delayed Photon, shape transfer (anchor CR -> SR) —
+  MixDel_AnchorCR00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinMixDel
+      - *b00
+      - *geq1SV_CR
+      - *geq1PhoNotBHLateSignal
+
+  MixDel_AnchorCR10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinMixDel
+      - *b10
+      - *geq1SV_CR
+      - *geq1PhoNotBHLateSignal
+
+  MixDel_AnchorCR20:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinMixDel
+      - *b20
+      - *geq1SV_CR
+      - *geq1PhoNotBHLateSignal
+
+  MixDel_CR00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinMixDel
+      - *b00
+      - *geq1SV_SR
+      - *geq1PhoNotBHLateSignal
+
+  MixDel_SR10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinMixDel
+      - *b10
+      - *geq1SV_SR
+      - *geq1PhoNotBHLateSignal
+
+  MixDel_SR20:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinMixDel
+      - *b20
+      - *geq1SV_SR
+      - *geq1PhoNotBHLateSignal
+
+  # ── Ch 2: Inclusive SV + 0 Photon —
+  SVonly_AnchorCR00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinSV
+      - *b00
+      - *geq1SV_CR
+      - *noPho
+      - *vetoGeq1PhoBHEarly
+      - *vetoGeq1PhoBHLate
+      - *vetoGeq1PhoNotBHEarly
+      - *vetoGeq1PhoNotBHLate
+
+  SVonly_AnchorCR10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinSV
+      - *b10
+      - *geq1SV_CR
+      - *noPho
+      - *vetoGeq1PhoBHEarly
+      - *vetoGeq1PhoBHLate
+      - *vetoGeq1PhoNotBHEarly
+      - *vetoGeq1PhoNotBHLate
+
+  SVonly_AnchorCR20:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinSV
+      - *b20
+      - *geq1SV_CR
+      - *noPho
+      - *vetoGeq1PhoBHEarly
+      - *vetoGeq1PhoBHLate
+      - *vetoGeq1PhoNotBHEarly
+      - *vetoGeq1PhoNotBHLate
+
+  SVonly_CR00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinSV
+      - *b00
+      - *geq1SV_SR
+      - *noPho
+      - *vetoGeq1PhoBHEarly
+      - *vetoGeq1PhoBHLate
+      - *vetoGeq1PhoNotBHEarly
+      - *vetoGeq1PhoNotBHLate
+
+  SVonly_SR10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinSV
+      - *b10
+      - *geq1SV_SR
+      - *noPho
+      - *vetoGeq1PhoBHEarly
+      - *vetoGeq1PhoBHLate
+      - *vetoGeq1PhoNotBHEarly
+      - *vetoGeq1PhoNotBHLate
+
+  SVonly_SR20:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinSV
+      - *b20
+      - *geq1SV_SR
+      - *noPho
+      - *vetoGeq1PhoBHEarly
+      - *vetoGeq1PhoBHLate
+      - *vetoGeq1PhoNotBHEarly
+      - *vetoGeq1PhoNotBHLate
+
+  # ── Ch 3: Inclusive SV + Any Photon Non-Delayed —
+  MixPrompt_AnchorCR00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinMixPrompt
+      - *b00
+      - *geq1SV_CR
+      - *geq1Pho
+      - *noBHPhotons
+      - *noNonPromptPhotons
+
+  MixPrompt_AnchorCR10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinMixPrompt
+      - *b10
+      - *geq1SV_CR
+      - *geq1Pho
+      - *noBHPhotons
+      - *noNonPromptPhotons
+
+  MixPrompt_AnchorCR20:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinMixPrompt
+      - *b20
+      - *geq1SV_CR
+      - *geq1Pho
+      - *noBHPhotons
+      - *noNonPromptPhotons
+
+  MixPrompt_CR00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinMixPrompt
+      - *b00
+      - *geq1SV_SR
+      - *geq1Pho
+      - *noBHPhotons
+      - *noNonPromptPhotons
+
+  MixPrompt_SR10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinMixPrompt
+      - *b10
+      - *geq1SV_SR
+      - *geq1Pho
+      - *noBHPhotons
+      - *noNonPromptPhotons
+
+  MixPrompt_SR20:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinMixPrompt
+      - *b20
+      - *geq1SV_SR
+      - *geq1Pho
+      - *noBHPhotons
+      - *noNonPromptPhotons
+
+  # ── Ch 4: Delayed Photon + 0 SV —
+  DelPho_BHEarlyCR00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *b20
+      - *noSV
+      - *geq1PhoBHEarly
+
+  DelPho_BHLateCR00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *b20
+      - *noSV
+      - *geq1PhoBHLate
+
+  DelPho_NotBHEarlyCR00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *b20
+      - *noSV
+      - *geq1PhoNotBHEarly
+
+  DelPho_NotBHLateSR00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *b20
+      - *noSV
+      - *geq1PhoNotBHLate
+
+  DelPho_MedIsoEarlyCR00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *b20
+      - *noSV
+      - *geq1PhoMedIsoEarly
+
+  DelPho_MedIsoLateCR00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *b20
+      - *noSV
+      - *geq1PhoMedIsoLate
+
+  DelPho_TightIsoEarlyCR00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *b20
+      - *noSV
+      - *geq1PhoTightIsoEarly
+
+  DelPho_BHEarlyCR10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *b10
+      - *noSV
+      - *geq1PhoBHEarly
+
+  DelPho_BHLateCR10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *b10
+      - *noSV
+      - *geq1PhoBHLate
+
+  DelPho_NotBHEarlyCR10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *b10
+      - *noSV
+      - *geq1PhoNotBHEarly
+
+  DelPho_NotBHLateSR10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *b10
+      - *noSV
+      - *geq1PhoNotBHLate
+
+  DelPho_MedIsoEarlyCR10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *b10
+      - *noSV
+      - *geq1PhoMedIsoEarly
+
+  DelPho_MedIsoLateCR10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *b10
+      - *noSV
+      - *geq1PhoMedIsoLate
+
+  DelPho_TightIsoEarlyCR10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *b10
+      - *noSV
+      - *geq1PhoTightIsoEarly
+
+  # \u2500\u2500 Ch 4: Delayed Photon + 0 SV \u2014
+  Eq2Pho_MedIsoCR00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinEq2Pho
+      - *b00
+      - *noSV
+      - *eq2Pho
+      - *phoCR_eq2prompt
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      
+  Eq2Pho_MedIsoCR10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinEq2Pho
+      - *b10
+      - *noSV
+      - *eq2Pho
+      - *phoCR_eq2prompt
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      
+  Eq2Pho_MedIsoCR20:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinEq2Pho
+      - *b20p
+      - *noSV
+      - *eq2Pho
+      - *phoCR_eq2prompt
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      
+  Eq2Pho_MedIsoCR30:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinEq2Pho
+      - *b30p
+      - *noSV
+      - *eq2Pho
+      - *phoCR_eq2prompt
+      - *noBHPhotons
+      - *noNonPromptPhotons
+
+  Eq2Pho_TightIsoCR00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinEq2Pho
+      - *b00
+      - *noSV
+      - *eq2Pho
+      - *phoSR_eq2prompt
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      
+  Eq2Pho_TightIsoSR10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinEq2Pho
+      - *b10
+      - *noSV
+      - *eq2Pho
+      - *phoSR_eq2prompt
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      
+  Eq2Pho_TightIsoSR20:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinEq2Pho
+      - *b20p
+      - *noSV
+      - *eq2Pho
+      - *phoSR_eq2prompt
+      - *noBHPhotons
+      - *noNonPromptPhotons
+
+  Eq2Pho_TightIsoSR30:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinEq2Pho
+      - *b30p
+      - *noSV
+      - *eq2Pho
+      - *phoSR_eq2prompt
+      - *noBHPhotons
+      - *noNonPromptPhotons
+regions:
+  Ch5SVonly_AnchorCR:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinSV
+      - *geq1SV_CR
+      - *noPho
+      - *vetoGeq1PhoBHEarly
+      - *vetoGeq1PhoBHLate
+      - *vetoGeq1PhoNotBHEarly
+      - *vetoGeq1PhoNotBHLate
+
+  Ch6SVonly_SR:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinSV
+      - *geq1SV_SR
+      - *noPho
+      - *vetoGeq1PhoBHEarly
+      - *vetoGeq1PhoBHLate
+      - *vetoGeq1PhoNotBHEarly
+      - *vetoGeq1PhoNotBHLate
+
+  Ch7MixPrompt_AnchorCR:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinMixPrompt
+      - *geq1SV_CR
+      - *geq1Pho
+      - *noBHPhotons
+      - *noNonPromptPhotons
+
+  Ch8MixPrompt_SR:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinMixPrompt
+      - *geq1SV_SR
+      - *geq1Pho
+      - *noBHPhotons
+      - *noNonPromptPhotons
+
+  Ch9DelPho_BHEarlyCR:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *noSV
+      - *geq1PhoBHEarly
+
+  Ch10DelPho_BHLateCR:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *noSV
+      - *geq1PhoBHLate
+
+  Ch11DelPho_NotBHEarlyCR:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *noSV
+      - *geq1PhoNotBHEarly
+
+  Ch12DelPho_NotBHLateSR:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinDelPho
+      - *noSV
+      - *geq1PhoNotBHLate
+
+  Ch13Eq2Pho_MedIsoCR:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinEq2Pho
+      - *noSV
+      - *eq2Pho
+      - *phoCR_eq2prompt
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      
+  Ch14Eq2Pho_TightIsoSR:
+      - *baseline_cuts
+      - *Cleaning
+      - *kinEq2Pho
+      - *noSV
+      - *eq2Pho
+      - *phoSR_eq2prompt
+      - *noBHPhotons
+      - *noNonPromptPhotons

@@ -3,6 +3,7 @@
 
 #include "JSONFactory.h"
 #include "BuildFitTools.h"
+#include "DataSplit.h"
 #include <iostream>
 #include <vector>
 #include <map>
@@ -28,6 +29,13 @@ using std::vector;
 using std::string;
 using std::map;
 using std::pair;
+
+//how a configured systematic is shared between split categories (e.g. Run2/Run3)
+enum class SplitCorrelation {
+	Correlated,   //one nuisance name for the matching bins of every split
+	Uncorrelated  //one nuisance per split, named <name>_<split>
+};
+
 struct yamlSys{
         public:
                 yamlSys(YAML::Node syst) :
@@ -43,12 +51,54 @@ struct yamlSys{
 				_procs = {"bkg"};
 			else
 				_procs = syst["procs"].as<vector<string>>();
+			//defaults to uncorrelated so a split fit does not assume a shared nuisance unless asked
+			_split_correlation = SplitCorrelation::Uncorrelated;
+			if(syst["split_correlation"]){
+				string corr = syst["split_correlation"].as<string>();
+				if(corr == "correlated")
+					_split_correlation = SplitCorrelation::Correlated;
+				else if(corr != "uncorrelated")
+					throw std::runtime_error("Systematic '" + _name + "' has invalid split_correlation '" + corr + "'; expected 'correlated' or 'uncorrelated'");
+			}
                 };
                 string _type;
 		string _name;
                 double _init_val;
                 vector<string> _bins;
 		vector<string> _procs;
+		SplitCorrelation _split_correlation;
+};
+
+//a process whose ABCD target-channel yield is templated from a source channel:
+//rate(target bin i) = yield(source bin i) * scale_<target>_<process>, with the scale initialized to the transfer factor
+struct ABCDTemplateProcess{
+	string source_channel;
+	string target_channel;
+	string process;
+	bool auto_transfer_factor = true; //auto: min over matching bins i of yield(target i)/yield(source i)
+	double transfer_factor = 1.;
+};
+
+//decomposition of one target-channel bin of one split into its templated part and the ABCD residual:
+//	target_yield = template_yield + residual_yield,  template_yield = transfer_factor * source_yield
+struct ABCDTemplateBinResult{
+	string source_bin;
+	string target_bin;
+	string template_process; //process added by the template
+	string abcd_process;     //ABCD process of the target channel, initialized from the residual
+	double source_yield = 0.;
+	double target_yield = 0.;
+	double transfer_factor = 0.;
+	double template_yield = 0.;
+	double residual_yield = 0.;
+};
+
+//one configured template evaluated in one split
+struct ABCDTemplateSplitResult{
+	ABCDTemplateProcess config;
+	string split;
+	double transfer_factor = 0.;
+	vector<ABCDTemplateBinResult> bins;
 };
 
 
@@ -97,8 +147,6 @@ class BuildFit{
 		void Build9binFitData(JSONFactory* j, std::string signalPoint, std::string datacard_dir, channelmap channelMap);
 		void BuildMultiChannel9bin(JSONFactory* j, std::string signalPoint, std::string datacard_dir, channelmap channelMap);
 
-		void AddTemplateProcessABCD(string src_ch, string target_ch, double tf = -999, string proc = "");
-
 		std::vector<std::string> sigkeys = { "gogoZ", "gogoG", "gogoGZ", "sqsqZ", "sqsqG", "sqsqGZ" };
 		//aggregate data key (BFI sums every data era in a bin into it); the only key used as data-driven bkg
 		std::vector<std::string> datakeys = { "data" };
@@ -117,9 +165,12 @@ class BuildFit{
 
 		string GetFitName(){ return _fitname; }
 
+		//split labels the model is built for: {""} unsplit, {"Run2","Run3"} for a run split
+		vector<string> ActiveSplitLabels() const{ return DataSplit::SplitLabels(_datasplit); }
+
 		//get process for bin (includes binidx)
 		string getProcess(string crbin){
-			string crch = crbin.substr(0, crbin.size() - 2);
+			string crch = getChannel(crbin);
 			for(auto it = _abcd_ch_ass.begin(); it != _abcd_ch_ass.end(); it++){
 				string srch = it->first;
 				for(auto iit = _abcd_ch_ass[srch].begin(); iit != _abcd_ch_ass[srch].end(); iit++){
@@ -146,13 +197,22 @@ class BuildFit{
 		bool _preserve_background_processes = false; //keeps MC backgrounds as separate Combine processes
 		bool _direct_mc_backgrounds_inserted = false;
 		//std::map<std::string, float> _obs_rates;
-		std::map<string, std::map<string, float>> _obs_rates; //map for obs_rates[bin][proc] 
+		std::map<string, std::map<string, double>> _obs_rates; //map for obs_rates[bin][proc] 
 		std::vector<std::string> _bkgprocs;
 		std::vector<std::string> _signalDetails;
 		json _yields;
+		//logical bins as written in the fit config (never carry a split suffix)
 		std::set<string> _bins_superset;
 		std::set<string> _bins_superset_abcd;
 		std::set<string> _bins_superset_shape;
+		//concrete fit categories: logical bins expanded over ActiveSplitLabels()
+		std::set<string> _fit_bins;
+		std::set<string> _fit_bins_abcd;
+		DataSplit::DataSplitMode _datasplit = DataSplit::DataSplitMode::None;
+		vector<ABCDTemplateProcess> _abcd_templates;
+		//template decompositions of the current model, computed before any ABCD rateParam is created
+		vector<ABCDTemplateSplitResult> _abcd_template_results;
+		map<string, ABCDTemplateBinResult> _abcd_template_bins; //concrete target bin -> its decomposition
 		string _fitname;
 		string _signalPoint;
 		map<string, string> _shape_anchor_bins;
@@ -172,14 +232,32 @@ class BuildFit{
 			return bin_tot_yield;
 		}
 
+		//logical anchor-index bin of a buoy channel (its CR bin)
 		string GetBuoyBin(string buoych){
-			return buoych.replace(buoych.find("SR"),2,"CR")+_shape_anchor_bins[buoych];
+			//look up the index before replace() mutates buoych (operand order of + is unspecified)
+			string anchor_idx = _shape_anchor_bins[buoych];
+			return buoych.replace(buoych.find("SR"),2,"CR")+anchor_idx;
 		}
 
-		//get bin indices - should be last two characters based on naming convention
-		string getBinIdx(string binname){
-			return binname.substr(binname.size() - 2);
-		}
+		//two-character bin index, ignoring any split suffix
+		string getBinIdx(const string& binname) const{ return DataSplit::BinIdx(binname); }
+		//channel of a bin, ignoring any split suffix
+		string getChannel(const string& binname) const{ return DataSplit::Channel(binname); }
+
+		std::set<string> ExpandToSplits(const std::set<string>& logical_bins) const;
+		void ValidateInputBins(const json& yields) const;
+		void ParseABCDTemplates(const YAML::Node& node);
+		void BuildShapeTransferFitForSplit(const string& split);
+		void BuildABCDConstraintsForSplit(const string& split);
+		string ABCDProcessOfChannel(const string& cr_ch) const;
+		double DataDrivenYield(const string& bin, const string& context) const;
+		//template decomposition of one split (pure calculation, does not touch the model); throws on a negative residual
+		ABCDTemplateSplitResult ComputeABCDTemplate(const ABCDTemplateProcess& tmpl, const string& split) const;
+		void ComputeABCDTemplates();
+		double ABCDControlYield(const string& crbin) const;
+		void AddABCDTemplateProcess(const ABCDTemplateSplitResult& result);
+		void ValidateSystematics() const;
+		string SystematicNameForSplit(const yamlSys& syst, const string& split) const;
 
 		void sumBkgs();
 		void InsertDirectMCBackgroundProcesses();
