@@ -111,7 +111,7 @@ int main(int argc, char* argv[]){
 			BF.BuildShapeTransferFit();
 			BF.BuildABCDFit();
 			//highDm channel names
-			BF.AddTemplateProcessABCD("Ch17CRgeq1PhoTightIsoEarly","Ch7CRgeq1PhoNotBHEarlyBin");
+			BF.AddTemplateProcessABCD("Ch17CRgeq1PhoTightIsoEarly","Ch7CRgeq1PhoNotBHEarly");
 			//compresssed channel names
 			BF.AddTemplateProcessABCD("DelPho_TightIsoEarlyCR","DelPho_NotBHEarlyCR");
 			BF.SetObservations(); 
@@ -119,6 +119,7 @@ int main(int argc, char* argv[]){
 			//write datacard
 			BF.WriteDatacard(datacard_dir, true);
 			datacard_dir = "datacards";
+			break;
 		}
 	}
 	catch(const std::exception& e){
