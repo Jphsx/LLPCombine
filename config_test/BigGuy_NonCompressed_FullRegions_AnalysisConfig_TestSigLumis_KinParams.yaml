@@ -1,0 +1,987 @@
+analysis:
+  name: "BigGuy_NonCompressed_FullRegions_TestSigLumis_AndresUpdate_RunSplit"
+  luminosity: 140
+  output_json: "BigGuy_NonCompressed_FullRegions_TestSigLumis_AndresUpdate_RunSplit.json"
+
+samples:
+  signals: ["gogoGZ10_18","gogoGZ10_22","gogoGZ10_23"]
+  data: ["MET18","MET22", "MET23"] #CAUTION: there are no checks to make sure that the years in signal match the years in data (yet...)
+  split: "runSplit" #"none", "yearSplit", or "runSplit"
+    #bins:
+    #  # ==== Ch1: Ge1Lep anchor (CR, dxySig < 200) ====
+    #  Ch1CRGeLep100:
+#if sample lumi is provided for signal year, it will override the total lumi (even if only one year is specified)
+#if sample lumi is not provided for signal year and only one signal year is specified, then it will scale to the total lumi
+sampleLumis:
+  2022: 20
+  2023: 40
+  2018: 80
+
+# Run-dependent kinematic boundaries, referenced in cuts as ${name[index]}.
+# Run2 and Run3 are currently identical to the original literal values.
+kinematics:
+  Run2:
+    kin_Ms: [2000]  # kin: preselection floor
+    kin_Rs: [0.15]
+    lep_Ms: [2000, 2600]  # bLep*: Ge1Lep SV
+    lep_Rs: [0.15, 0.3]
+    had_Ms: [2000, 2600, 3000]  # bHad*: Ge1Had SV
+    had_Rs: [0.15, 0.35]
+    del_Ms: [2000, 2600]  # DelayedBin*
+    del_Rs: [0.15, 0.35]
+    svdel_Ms: [2000]  # SVDelayedBin*
+    svdel_Rs: [0.15, 0.3]
+    eq2_Ms: [2500, 2700]  # eq2b*: 2 prompt photons
+    eq2_Rs: [0.3]
+    eq1_Ms: [2500, 2700]  # eq1b*: 1 prompt photon
+    eq1_Rs: [0.35, 0.45]
+
+  Run3:
+    kin_Ms: [2000]  # kin: preselection floor
+    kin_Rs: [0.15]
+    lep_Ms: [2000, 2600]  # bLep*: Ge1Lep SV
+    lep_Rs: [0.15, 0.3]
+    had_Ms: [2000, 2600, 3000]  # bHad*: Ge1Had SV
+    had_Rs: [0.15, 0.35]
+    del_Ms: [2000, 2600]  # DelayedBin*
+    del_Rs: [0.15, 0.35]
+    svdel_Ms: [2000]  # SVDelayedBin*
+    svdel_Rs: [0.15, 0.3]
+    eq2_Ms: [2500, 2700]  # eq2b*: 2 prompt photons
+    eq2_Rs: [0.3]
+    eq1_Ms: [2500, 2700]  # eq1b*: 1 prompt photon
+    eq1_Rs: [0.35, 0.45]
+
+baseline_cuts: &baseline_cuts
+  - "(selCMet > 150)"
+
+Cleaning: &Cleaning
+  - "((Flag_MetFilters == 1) && (rjrPTS[0] < 150) && ((Trigger_PFMET120_PFMHT120_IDTight == 1)||(Trigger_PFMET120_PFMHT120_IDTight_PFHT60 == 1)||(Trigger_PFMETNoMu120_PFMHTNoMu120_IDTight)||(Trigger_PFMETNoMu120_PFMHTNoMu120_IDTight_PFHT60)) && (!Flag_hemVeto))"
+
+kin: &kin
+  - "((rjr_Ms[0] >= ${kin_Ms[0]}) && (rjr_Rs[0] >= ${kin_Rs[0]}))"
+
+
+
+################################################################################################################################################################################################################################################################################################
+############### SV REGIONS ###############
+################################################################################################################################################################################################################################################################################################
+
+
+#highest priority - leptonic SV
+SVgeLep1_SR: &SVgeLep1_SR
+  - "(passNLepGe1SelectionHighDxySigSR == 1)"
+
+SVgeLep1_CR: &SVgeLep1_CR
+  - "(passNLepGe1SelectionLowDxySigCR == 1)"
+
+#second priority - hadronic SV
+SVgeHad1_SR: &SVgeHad1_SR
+  - "(passNHadGe1SelectionHighDxySigSR == 1)"
+
+SVgeHad1_CR: &SVgeHad1_CR
+  - "(passNHadGe1SelectionLowDxySigCR == 1)"
+
+
+################################ Ge1Lep Kinematic Bins (2 Ms x 2 Rs = 4 bins) ################################
+
+bLep00: &bLep00
+  - "((rjr_Ms[0] >= ${lep_Ms[0]}) && (rjr_Ms[0] < ${lep_Ms[1]}) && (rjr_Rs[0] >= ${lep_Rs[0]}) && (rjr_Rs[0] < ${lep_Rs[1]}))"
+bLep10: &bLep10
+  - "((rjr_Ms[0] >= ${lep_Ms[1]}) && (rjr_Rs[0] >= ${lep_Rs[0]}) && (rjr_Rs[0] < ${lep_Rs[1]}))"
+bLep01: &bLep01
+  - "((rjr_Ms[0] >= ${lep_Ms[0]}) && (rjr_Ms[0] < ${lep_Ms[1]}) && (rjr_Rs[0] >= ${lep_Rs[1]}))"
+bLep11: &bLep11
+  - "((rjr_Ms[0] >= ${lep_Ms[1]}) && (rjr_Rs[0] >= ${lep_Rs[1]}))"
+
+################################ Ge1Had Kinematic Bins (2 low-Rs + 3 high-Rs = 5 bins) ################################
+
+bHad00: &bHad00
+  - "((rjr_Ms[0] >= ${had_Ms[0]}) && (rjr_Ms[0] < ${had_Ms[1]}) && (rjr_Rs[0] >= ${had_Rs[0]}) && (rjr_Rs[0] < ${had_Rs[1]}))"
+bHad10: &bHad10
+  - "((rjr_Ms[0] >= ${had_Ms[1]}) && (rjr_Rs[0] >= ${had_Rs[0]}) && (rjr_Rs[0] < ${had_Rs[1]}))"
+bHad01: &bHad01
+  - "((rjr_Ms[0] >= ${had_Ms[0]}) && (rjr_Ms[0] < ${had_Ms[1]}) && (rjr_Rs[0] >= ${had_Rs[1]}))"
+bHad11: &bHad11
+  - "((rjr_Ms[0] >= ${had_Ms[1]}) && (rjr_Ms[0] < ${had_Ms[2]}) && (rjr_Rs[0] >= ${had_Rs[1]}))"
+bHad21: &bHad21
+  - "((rjr_Ms[0] >= ${had_Ms[2]}) && (rjr_Rs[0] >= ${had_Rs[1]}))"
+
+DelayedBin00: &DelayedBin00
+  - "((rjr_Ms[0] >= ${del_Ms[0]}) && (rjr_Ms[0] < ${del_Ms[1]}) && (rjr_Rs[0] >= ${del_Rs[0]}) && (rjr_Rs[0] < ${del_Rs[1]}))"
+DelayedBin10: &DelayedBin10
+  - "((rjr_Ms[0] >= ${del_Ms[1]}) && (rjr_Rs[0] >= ${del_Rs[0]}) && (rjr_Rs[0] < ${del_Rs[1]}))"
+DelayedBin01: &DelayedBin01
+  - "((rjr_Ms[0] >= ${del_Ms[0]}) && (rjr_Ms[0] < ${del_Ms[1]}) && (rjr_Rs[0] >= ${del_Rs[1]}))"
+DelayedBin11: &DelayedBin11
+  - "((rjr_Ms[0] >= ${del_Ms[1]}) && (rjr_Rs[0] >= ${del_Rs[1]}))"
+    #DelayedBin00: &DelayedBin00
+    #  - "(rjr_Ms[0] >= 2000)"
+    #  - "(rjr_Rs[0] >= 0.3)"
+
+SVDelayedBin00: &SVDelayedBin00
+  - "((rjr_Ms[0] >= ${svdel_Ms[0]}) && (rjr_Rs[0] >= ${svdel_Rs[0]}) && (rjr_Rs[0] < ${svdel_Rs[1]}))"
+SVDelayedBin01: &SVDelayedBin01
+  - "((rjr_Ms[0] >= ${svdel_Ms[0]}) && (rjr_Rs[0] >= ${svdel_Rs[1]}))"
+
+eq2b00: &eq2b00
+  - "((rjr_Ms[0] >= ${eq2_Ms[0]}) && (rjr_Ms[0] < ${eq2_Ms[1]}) && (rjr_Rs[0] < ${eq2_Rs[0]}))"
+eq2b10: &eq2b10
+  - "((rjr_Ms[0] >= ${eq2_Ms[1]}) && (rjr_Rs[0] < ${eq2_Rs[0]}))"
+eq2b01: &eq2b01
+  - "((rjr_Ms[0] >= ${eq2_Ms[0]}) && (rjr_Ms[0] < ${eq2_Ms[1]}) && (rjr_Rs[0] >= ${eq2_Rs[0]}))"
+eq2b11: &eq2b11
+  - "((rjr_Ms[0] >= ${eq2_Ms[1]}) && (rjr_Rs[0] >= ${eq2_Rs[0]}))"
+
+eq1b00: &eq1b00
+  - "((rjr_Ms[0] >= ${eq1_Ms[0]}) && (rjr_Ms[0] < ${eq1_Ms[1]}) && (rjr_Rs[0] < ${eq1_Rs[0]}))"
+eq1b10: &eq1b10
+  - "((rjr_Ms[0] >= ${eq1_Ms[1]}) && (rjr_Rs[0] < ${eq1_Rs[0]}))"
+eq1b01: &eq1b01
+  - "((rjr_Ms[0] >= ${eq1_Ms[0]}) && (rjr_Ms[0] < ${eq1_Ms[1]}) && (rjr_Rs[0] >= ${eq1_Rs[0]}) && (rjr_Rs[0] < ${eq1_Rs[1]}))"
+eq1b11: &eq1b11
+  - "((rjr_Ms[0] >= ${eq1_Ms[1]}) && (rjr_Rs[0] >= ${eq1_Rs[0]}) && (rjr_Rs[0] < ${eq1_Rs[1]}))"
+eq1b02: &eq1b02
+  - "((rjr_Ms[0] >= ${eq1_Ms[0]}) && (rjr_Ms[0] < ${eq1_Ms[1]}) && (rjr_Rs[0] >= ${eq1_Rs[1]}))"
+eq1b12: &eq1b12
+  - "((rjr_Ms[0] >= ${eq1_Ms[1]}) && (rjr_Rs[0] >= ${eq1_Rs[1]}))"
+
+
+################################################################################################################################################################################################################################################################################################
+############### PHOTON REGIONS ###############
+################################################################################################################################################################################################################################################################################################
+noSV: &noSV
+  - "(passNSVEq0Selection == 1)"
+
+Ch5CRgeq1PhoBHEarly: &Ch5CRgeq1PhoBHEarly
+  - "(passNPhoGe1SelectionEarlyBeamHaloCR == 1)"
+  #- "(nBaseLinePhotons > 0)"
+  ## >= 1 BH photon early
+  #- "( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] >= 0.917252 && baseLinePhoton_WTimeSig[0] < -2.5) || ( nBaseLinePhotons == 2 && ((baseLinePhoton_beamHaloCNNScore[0] >= 0.917252 && baseLinePhoton_WTimeSig[0] < -2.5) || (baseLinePhoton_beamHaloCNNScore[1] >= 0.917252 && baseLinePhoton_WTimeSig[1] < -2.5)) ) )"
+
+Ch6CRgeq1PhoBHLate: &Ch6CRgeq1PhoBHLate
+  - "(passNPhoGe1SelectionLateBeamHaloCR == 1)"
+  #- "(nBaseLinePhotons > 0)"
+  ## >= 1 BH photon late
+  #- "(nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] >= 0.917252 && baseLinePhoton_WTimeSig[0] >= 2.5) || ( nBaseLinePhotons == 2 && ((baseLinePhoton_beamHaloCNNScore[0] >= 0.917252 && baseLinePhoton_WTimeSig[0] >= 2.5) || (baseLinePhoton_beamHaloCNNScore[1] >= 0.917252 && baseLinePhoton_WTimeSig[1] >= 2.5)) )"
+
+# ==0 BH photons
+# >= 1 notBH photons
+# >= 1 nonprompt
+Ch7CRgeq1PhoNotBHEarly: &Ch7CRgeq1PhoNotBHEarly
+  - "(passNPhoGe1SelectionEarlyNotBHCR == 1)"
+  #- "(nBaseLinePhotons > 0)"
+  ## == 0 BH photons
+  #- "(( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252) || (nBaseLinePhotons == 2 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252 && baseLinePhoton_beamHaloCNNScore[1] < 0.917252) ) )"
+  ## >=1 notBH photons early
+  #- "( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] < 0.185 && baseLinePhoton_WTimeSig[0] < -2.5) || ( nBaseLinePhotons == 2 && ((baseLinePhoton_beamHaloCNNScore[0] < 0.185 && baseLinePhoton_WTimeSig[0] < -2.5) || (baseLinePhoton_beamHaloCNNScore[1] < 0.185 && baseLinePhoton_WTimeSig[1] < -2.5)) ) )"
+
+Ch8SRgeq1PhoNotBHLate: &Ch8SRgeq1PhoNotBHLate
+  - "(passNPhoGe1SelectionLateNotBHTightIsoSR == 1)"
+  #- "(nBaseLinePhotons > 0)"
+  ## == 0 BH photons
+  #- "(( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252) || (nBaseLinePhotons == 2 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252 && baseLinePhoton_beamHaloCNNScore[1] < 0.917252) ) )"
+  ## >=1 notBH photons late
+  #- "( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] < 0.185 && baseLinePhoton_WTimeSig[0] >= 2.5) || ( nBaseLinePhotons == 2 && ((baseLinePhoton_beamHaloCNNScore[0] < 0.185 && baseLinePhoton_WTimeSig[0] >= 2.5) || (baseLinePhoton_beamHaloCNNScore[1] < 0.185 && baseLinePhoton_WTimeSig[1] >= 2.5)) ) )"
+
+CRgeq1PhoMedIsoEarly: &Ch15CRgeq1PhoMedIsoEarly
+  - "(passNPhoGe1SelectionEarlyMedIsoCR == 1)"
+
+CRgeq1PhoMedIsoLate: &Ch16CRgeq1PhoMedIsoLate
+  - "(passNPhoGe1SelectionLateMedIsoCR == 1)"
+
+CRgeq1PhoTightIsoEarly: &Ch17CRgeq1PhoTightIsoEarly
+  - "(passNPhoGe1SelectionEarlyTightIsoCR == 1)"
+
+######################
+####prompt regions####
+######################
+noBHPhotons: &noBHPhotons
+  - "(nblBHPhotons == 0)"
+  #- "(( (nBaseLinePhotons == 1 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252) || (nBaseLinePhotons == 2 && baseLinePhoton_beamHaloCNNScore[0] < 0.917252 && baseLinePhoton_beamHaloCNNScore[1] < 0.917252) ) )"
+
+noNonPromptPhotons: &noNonPromptPhotons
+  - "(nblNonpromptPhotons == 0)"
+  #- "((nBaseLinePhotons == 0) || (nBaseLinePhotons == 1 && (baseLinePhoton_WTimeSig[0] < 2.5 && baseLinePhoton_WTimeSig[0] > -2.5)) || (nBaseLinePhotons == 2 && ( baseLinePhoton_WTimeSig[0] < 2.5 && baseLinePhoton_WTimeSig[0] > -2.5) && ( baseLinePhoton_WTimeSig[1] < 2.5 && baseLinePhoton_WTimeSig[1] > -2.5)) )"
+
+geq1NonPromptPhotons: &geq1NonPromptPhotons
+  - "(nblNonpromptPhotons > 0)"
+  #- "( (nBaseLinePhotons == 1 && ((baseLinePhoton_WTimeSig[0] > 2.5) || (baseLinePhoton_WTimeSig[0] < -2.5))) || (nBaseLinePhotons == 2 && ( (baseLinePhoton_WTimeSig[0] > 2.5) || (baseLinePhoton_WTimeSig[0] < -2.5) || ( (baseLinePhoton_WTimeSig[1] > 2.5) || (baseLinePhoton_WTimeSig[1] < -2.5)))))"
+
+Ch10SReq1PhoTightIsoPrompt: &Ch10SReq1PhoTightIsoPrompt
+  - "(passNPhoEq1SelectionPromptTightIsoSR == 1)"
+  #below true SR line, but above intermediate line in pt-iso score plane
+  #- "(nBaseLinePhotons == 1 && (baseLinePhoton_Pt[0] > 100 && (baseLinePhoton_isoANNScore[0] >= -0.000198*baseLinePhoton_Pt[0] + 1.0188)) || (baseLinePhoton_Pt[0] <= 100 && (baseLinePhoton_isoANNScore[0] >= 0.999)) && (baseLinePhoton_Eta[0] < 1.479 && baseLinePhoton_Eta[0] > -1.479))"
+
+Ch9CReq1PhoMedIsoPrompt: &Ch9CReq1PhoMedIsoPrompt
+  - "(passNPhoEq1SelectionPromptMedIsoCR == 1)"
+  #- "(nBaseLinePhotons == 1  && ((baseLinePhoton_Pt[0] > 100 && (baseLinePhoton_isoANNScore[0] < -0.000198*baseLinePhoton_Pt[0] + 1.0188) && ( baseLinePhoton_isoANNScore[0] >= -0.000198*baseLinePhoton_Pt[0] + 0.7698)) || (baseLinePhoton_Pt[0] <= 100 && (baseLinePhoton_isoANNScore[0] < 0.999) && (baseLinePhoton_isoANNScore[0] >= 0.75)) && (baseLinePhoton_Eta[0] < 1.479 && baseLinePhoton_Eta[0] > -1.479)))"
+
+Ch12SReq2PhoTightIsoPrompt: &Ch12SReq2PhoTightIsoPrompt
+  - "(passNPhoEq2SelectionPromptTightIsoSR == 1)"
+  #- "(nBaseLinePhotons == 2 && (((baseLinePhoton_Pt[0] > 100 && (baseLinePhoton_isoANNScore[0] >= -0.0001*baseLinePhoton_Pt[0] + 0.96)) || (baseLinePhoton_Pt[0] <= 100 && (baseLinePhoton_isoANNScore[0] >= 0.95))) && (baseLinePhoton_Eta[0] < 1.479 && baseLinePhoton_Eta[0] > -1.479)) && ((baseLinePhoton_Pt[1] > 100 && (baseLinePhoton_isoANNScore[1] >= -0.0001*baseLinePhoton_Pt[1] + 0.96)) || (baseLinePhoton_Pt[1] <= 100 && baseLinePhoton_isoANNScore[1] >= 0.95) && (baseLinePhoton_Eta[1] < 1.479 && baseLinePhoton_Eta[1] > -1.479)))"
+
+Ch11CReq2PhoMedIsoPrompt: &Ch11CReq2PhoMedIsoPrompt
+  - "(passNPhoEq2SelectionPromptMedIsoCR == 1)"
+  #- "(nBaseLinePhotons == 2 && ((baseLinePhoton_Pt[0] > 100 && ( baseLinePhoton_isoANNScore[0] < -0.0001*baseLinePhoton_Pt[0] + 0.96 ) && (baseLinePhoton_isoANNScore[0] >= -0.0001*baseLinePhoton_Pt[0] + 0.76 )) || (baseLinePhoton_Pt[0] <= 100 && (baseLinePhoton_isoANNScore[0] < 0.95 && baseLinePhoton_isoANNScore[0] >= 0.75)) && (baseLinePhoton_Eta[0] < 1.479 && baseLinePhoton_Eta[0] > -1.479 )) || ((baseLinePhoton_Pt[1] > 100 && (baseLinePhoton_isoANNScore[1] < -0.0001*baseLinePhoton_Pt[1] + 0.96) && ( (baseLinePhoton_isoANNScore[1] >= -0.0001*baseLinePhoton_Pt[1] + 0.76))) || (baseLinePhoton_Pt[1] <= 100 && baseLinePhoton_isoANNScore[1] < 0.95 && baseLinePhoton_isoANNScore[1] >= 0.75) && (baseLinePhoton_Eta[1] < 1.479 && baseLinePhoton_Eta[1] > -1.479 )) )"
+
+
+balRJRJets: &balRJRJets
+  - "( ( rjrNJetsJa[0] >= 3 && rjrNJetsJb[0] >= 2 ) || ( rjrNJetsJa[0] >= 2 && rjrNJetsJb[0] >= 3 ) )"
+
+geq1LateSignalPhotons: &geq1LateSignalPhotons
+  - "(passNPhoGe1SelectionLateSignal == 1)"
+  #- "(nBaseLinePhotons > 0)"
+  #- "((nBaseLinePhotons == 1 && (baseLinePhoton_WTimeSig[0] > 2.5 && baseLinePhoton_beamHaloCNNScore[0] < 0.185)) || (nBaseLinePhotons == 2 && ( baseLinePhoton_WTimeSig[0] > 2.5 && baseLinePhoton_beamHaloCNNScore[0] < 0.185) || ( baseLinePhoton_WTimeSig[1] > 2.5 && baseLinePhoton_beamHaloCNNScore[1] < 0.185)) )"
+
+
+bins:
+  # ==== Ch1: Ge1Lep anchor (CR, dxySig < 200) ====
+  Ch1CRGeLep100:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeLep1_CR
+      - *bLep00
+  Ch1CRGeLep110:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeLep1_CR
+      - *bLep10
+  Ch1CRGeLep101:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeLep1_CR
+      - *bLep01
+  Ch1CRGeLep111:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeLep1_CR
+      - *bLep11
+  # ==== Ch2: Ge1Lep SR (dxySig > 200) ====
+  # Ch2CRGeLep100 is the normalization anchor bin (lowest sensitivity, same SR selection)
+  Ch2CRGeLep100:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeLep1_SR
+      - *bLep00
+  Ch2SRGeLep110:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeLep1_SR
+      - *bLep10
+  Ch2SRGeLep101:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeLep1_SR
+      - *bLep01
+  Ch2SRGeLep111:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeLep1_SR
+      - *bLep11
+  # ==== Ch3: Ge1Had anchor (CR, dxySig < 800) ====
+  Ch3CRGeHad100:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeHad1_CR
+      - *noNonPromptPhotons
+      - *bHad00
+  Ch3CRGeHad110:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeHad1_CR
+      - *noNonPromptPhotons
+      - *bHad10
+  Ch3CRGeHad101:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeHad1_CR
+      - *noNonPromptPhotons
+      - *bHad01
+  Ch3CRGeHad111:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeHad1_CR
+      - *noNonPromptPhotons
+      - *bHad11
+  Ch3CRGeHad121:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeHad1_CR
+      - *noNonPromptPhotons
+      - *bHad21
+  # ==== Ch4: Ge1Had SR (dxySig > 800) ====
+  # Ch4CRGeHad100 is the normalization anchor bin (lowest sensitivity, same SR selection)
+  Ch4CRGeHad100:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeHad1_SR
+      - *noNonPromptPhotons
+      - *bHad00
+  Ch4SRGeHad110:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeHad1_SR
+      - *noNonPromptPhotons
+      - *bHad10
+  Ch4SRGeHad101:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeHad1_SR
+      - *noNonPromptPhotons
+      - *bHad01
+  Ch4SRGeHad111:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeHad1_SR
+      - *noNonPromptPhotons
+      - *bHad11
+  Ch4SRGeHad121:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noNonPromptPhotons
+      - *kin
+      - *SVgeHad1_SR
+      - *bHad21
+  # ==== Ch5: Ge1 Photon Early BH CR ====
+  Ch5CRgeq1PhoBHEarlyBin00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch5CRgeq1PhoBHEarly
+      - *DelayedBin00
+  Ch5CRgeq1PhoBHEarlyBin10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch5CRgeq1PhoBHEarly
+      - *DelayedBin10
+  Ch5CRgeq1PhoBHEarlyBin01:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch5CRgeq1PhoBHEarly
+      - *DelayedBin01
+  Ch5CRgeq1PhoBHEarlyBin11:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch5CRgeq1PhoBHEarly
+      - *DelayedBin11
+  # ==== Ch6: Ge1 Photon Late BH CR ====
+  Ch6CRgeq1PhoBHLateBin00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch6CRgeq1PhoBHLate
+      - *DelayedBin00
+  Ch6CRgeq1PhoBHLateBin10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch6CRgeq1PhoBHLate
+      - *DelayedBin10
+  Ch6CRgeq1PhoBHLateBin01:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch6CRgeq1PhoBHLate
+      - *DelayedBin01
+  Ch6CRgeq1PhoBHLateBin11:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch6CRgeq1PhoBHLate
+      - *DelayedBin11
+  # ==== Ch7: Ge1 Photon Early !BH CR ====
+  Ch7CRgeq1PhoNotBHEarlyBin00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch7CRgeq1PhoNotBHEarly
+      - *DelayedBin00
+  Ch7CRgeq1PhoNotBHEarlyBin10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch7CRgeq1PhoNotBHEarly
+      - *DelayedBin10
+  Ch7CRgeq1PhoNotBHEarlyBin01:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch7CRgeq1PhoNotBHEarly
+      - *DelayedBin01
+  Ch7CRgeq1PhoNotBHEarlyBin11:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch7CRgeq1PhoNotBHEarly
+      - *DelayedBin11
+  # ==== Ch8: Ge1 Photon Late !BH SR ====
+  Ch8SRgeq1PhoNotBHLateBin00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch8SRgeq1PhoNotBHLate
+      - *DelayedBin00
+  Ch8SRgeq1PhoNotBHLateBin10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch8SRgeq1PhoNotBHLate
+      - *DelayedBin10
+  Ch8SRgeq1PhoNotBHLateBin01:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch8SRgeq1PhoNotBHLate
+      - *DelayedBin01
+  Ch8SRgeq1PhoNotBHLateBin11:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch8SRgeq1PhoNotBHLate
+      - *DelayedBin11
+  # ==== Ch9: Eq1 Photon Prompt CR ====
+  Ch9CReq1PhoMedIsoPromptBin00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *balRJRJets
+      - *kin
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch9CReq1PhoMedIsoPrompt
+      - *eq1b00
+  Ch9CReq1PhoMedIsoPromptBin10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *balRJRJets
+      - *kin
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch9CReq1PhoMedIsoPrompt
+      - *eq1b10
+  Ch9CReq1PhoMedIsoPromptBin01:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *balRJRJets
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch9CReq1PhoMedIsoPrompt
+      - *eq1b01
+  Ch9CReq1PhoMedIsoPromptBin02:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *balRJRJets
+      - *kin
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch9CReq1PhoMedIsoPrompt
+      - *eq1b02
+  Ch9CReq1PhoMedIsoPromptBin11:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *balRJRJets
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch9CReq1PhoMedIsoPrompt
+      - *eq1b11
+  Ch9CReq1PhoMedIsoPromptBin12:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *balRJRJets
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch9CReq1PhoMedIsoPrompt
+      - *eq1b12
+  Ch10CReq1PhoTightIsoPromptBin00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *balRJRJets
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch10SReq1PhoTightIsoPrompt
+      - *eq1b00
+  Ch10SReq1PhoTightIsoPromptBin10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *balRJRJets
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch10SReq1PhoTightIsoPrompt
+      - *eq1b10
+  Ch10SReq1PhoTightIsoPromptBin01:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *balRJRJets
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch10SReq1PhoTightIsoPrompt
+      - *eq1b01
+  Ch10SReq1PhoTightIsoPromptBin02:
+     cuts:
+       - *baseline_cuts
+       - *Cleaning
+       - *noSV
+       - *kin
+       - *noBHPhotons
+       - *balRJRJets
+       - *noNonPromptPhotons
+       - *Ch10SReq1PhoTightIsoPrompt
+       - *eq1b02
+  Ch10SReq1PhoTightIsoPromptBin12:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *balRJRJets
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch10SReq1PhoTightIsoPrompt
+      - *eq1b12
+  Ch10SReq1PhoTightIsoPromptBin11:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *balRJRJets
+      - *kin
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch10SReq1PhoTightIsoPrompt
+      - *eq1b11
+  Ch11CReq2PhoMedIsoPromptBin00:
+     cuts:
+       - *baseline_cuts
+       - *Cleaning
+       - *noSV
+       - *kin
+       - *noBHPhotons
+       - *noNonPromptPhotons
+       - *Ch11CReq2PhoMedIsoPrompt
+       - *eq2b00
+  Ch11CReq2PhoMedIsoPromptBin10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch11CReq2PhoMedIsoPrompt
+      - *eq2b10
+  Ch11CReq2PhoMedIsoPromptBin01:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch11CReq2PhoMedIsoPrompt
+      - *eq2b01
+  Ch11CReq2PhoMedIsoPromptBin11:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch11CReq2PhoMedIsoPrompt
+      - *eq2b11
+  Ch12CReq2PhoTightIsoPromptBin00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch12SReq2PhoTightIsoPrompt
+      - *eq2b00
+  Ch12SReq2PhoTightIsoPromptBin10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch12SReq2PhoTightIsoPrompt
+      - *eq2b10
+  Ch12SReq2PhoTightIsoPromptBin01:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch12SReq2PhoTightIsoPrompt
+      - *eq2b01
+  Ch12SReq2PhoTightIsoPromptBin11:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch12SReq2PhoTightIsoPrompt
+      - *eq2b11
+  # ==== Ch13: Ge1 SV had Photon Early BH CR ====
+  Ch13CRgeq1SVLowDxygeq1PhoNotBHLate00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeHad1_CR
+      - *geq1LateSignalPhotons
+      - *SVDelayedBin00
+  Ch13CRgeq1SVLowDxygeq1PhoNotBHLate01:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeHad1_CR
+      - *geq1LateSignalPhotons
+      - *SVDelayedBin01
+  # ==== Ch14: Ge1 SV had Ge1 Photon Late BH CR ====
+  Ch14CRgeq1SVHighDxygeq1PhoNotBHLate00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeHad1_SR
+      - *geq1LateSignalPhotons
+      - *SVDelayedBin00
+  Ch14SRgeq1SVHighDxygeq1PhoNotBHLate01:
+     cuts:
+       - *baseline_cuts
+       - *Cleaning
+       - *kin
+       - *SVgeHad1_SR
+       - *geq1LateSignalPhotons
+       - *SVDelayedBin01
+  # ==== Ch15: Ge1 Photon Early MedIso CR ====
+  Ch15CRgeq1PhoMedIsoEarly00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch15CRgeq1PhoMedIsoEarly
+      - *DelayedBin00
+  Ch15CRgeq1PhoMedIsoEarly10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch15CRgeq1PhoMedIsoEarly
+      - *DelayedBin10
+  Ch15CRgeq1PhoMedIsoEarly01:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch15CRgeq1PhoMedIsoEarly
+      - *DelayedBin01
+  Ch15CRgeq1PhoMedIsoEarly11:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch15CRgeq1PhoMedIsoEarly
+      - *DelayedBin11
+  # ==== Ch16: Ge1 Photon Late MedIso CR ====
+  Ch16CRgeq1PhoMedIsoLate00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch16CRgeq1PhoMedIsoLate
+      - *DelayedBin00
+  Ch16CRgeq1PhoMedIsoLate10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch16CRgeq1PhoMedIsoLate
+      - *DelayedBin10
+  Ch16CRgeq1PhoMedIsoLate01:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch16CRgeq1PhoMedIsoLate
+      - *DelayedBin01
+  Ch16CRgeq1PhoMedIsoLate11:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch16CRgeq1PhoMedIsoLate
+      - *DelayedBin11
+  # ==== Ch17: Ge1 Photon Early TightIso CR ====
+  Ch17CRgeq1PhoTightIsoEarly00:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch17CRgeq1PhoTightIsoEarly
+      - *DelayedBin00
+  Ch17CRgeq1PhoTightIsoEarly10:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch17CRgeq1PhoTightIsoEarly
+      - *DelayedBin10
+  Ch17CRgeq1PhoTightIsoEarly01:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch17CRgeq1PhoTightIsoEarly
+      - *DelayedBin01
+  Ch17CRgeq1PhoTightIsoEarly11:
+    cuts:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch17CRgeq1PhoTightIsoEarly
+      - *DelayedBin11
+
+
+
+regions:
+  # ==== Ch1: Ge1Lep anchor (CR, dxySig < 200) ====
+  Ch1CRGeLep1:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeLep1_CR
+  # ==== Ch2: Ge1Lep SR (dxySig > 200) ====
+  # Ch2CRGeLep100 is the normalization anchor bin (lowest sensitivity, same SR selection)
+  Ch2SRGeLep1:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeLep1_SR
+  # ==== Ch3: Ge1Had anchor (CR, dxySig < 800) ====
+  Ch3CRGeHad1:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noNonPromptPhotons
+      - *SVgeHad1_CR
+  # ==== Ch4: Ge1Had SR (dxySig > 800) ====
+  # Ch4CRGeHad100 is the normalization anchor bin (lowest sensitivity, same SR selection)
+  Ch4SRGeHad1:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noNonPromptPhotons
+      - *SVgeHad1_SR
+  # ==== Ch5: Ge1 Photon Early BH CR ====
+  Ch5CRgeq1PhoBHEarly:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch5CRgeq1PhoBHEarly
+  # ==== Ch6: Ge1 Photon Late BH CR ====
+  Ch6CRgeq1PhoBHLate:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch6CRgeq1PhoBHLate
+  # ==== Ch7: Ge1 Photon Early !BH CR ====
+  Ch7CRgeq1PhoNotBHEarly:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch7CRgeq1PhoNotBHEarly
+  # ==== Ch8: Ge1 Photon Late !BH SR ====
+  Ch8SRgeq1PhoNotBHLate:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch8SRgeq1PhoNotBHLate
+  Ch9CReq1PhoMedIsoPrompt:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *balRJRJets
+      - *kin
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch9CReq1PhoMedIsoPrompt
+  Ch10SReq1PhoTightIsoPrompt:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *balRJRJets
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch10SReq1PhoTightIsoPrompt
+  Ch11CReq2PhoMedIsoPrompt:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch11CReq2PhoMedIsoPrompt
+  Ch12SReq2PhoTightIsoPrompt:
+      - *baseline_cuts
+      - *Cleaning
+      - *noSV
+      - *kin
+      - *noBHPhotons
+      - *noNonPromptPhotons
+      - *Ch12SReq2PhoTightIsoPrompt
+  # ==== Ch13: Ge1 SV had Photon Late !BH CR ====
+  Ch13CRgeq1SVLowDxygeq1PhoNotBHLate:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeHad1_CR
+      - *geq1LateSignalPhotons
+  # ==== Ch14: Ge1 SV had Ge1 Photon Late !BH CR ====
+  Ch14SRgeq1SVHighDxygeq1PhoNotBHLate:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *SVgeHad1_SR
+      - *geq1LateSignalPhotons
+  # ==== Ch15: Ge1 Photon Early MedIso CR ====
+  Ch15CRgeq1PhoMedIsoEarly:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch15CRgeq1PhoMedIsoEarly
+  # ==== Ch16: Ge1 Photon Late MedIso CR ====
+  Ch16CRgeq1PhoMedIsoLate:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch16CRgeq1PhoMedIsoLate
+  # ==== Ch17: Ge1 Photon Early TightIso CR ====
+  Ch17CRgeq1PhoTightIsoEarly:
+      - *baseline_cuts
+      - *Cleaning
+      - *kin
+      - *noSV
+      - *Ch17CRgeq1PhoTightIsoEarly

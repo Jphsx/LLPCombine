@@ -144,7 +144,10 @@ inline std::vector<std::string> BFTool::SplitString(const std::string& str,const
 		for(const auto& tok : sig_toks){
 			if(tok == "gogoGZ" || tok == "gogoG" || tok == "gogoZ" || tok == "sqsqG")
 				mode = tok;
-			else if(tok.rfind("mGl-", 0) == 0)
+			// SMS-style names, e.g. T5Zg_mGo-2300_mN2-1200_mN1-1000_N2ctau-300cm
+			else if(tok == "T5Zg")
+				mode = "gogoGZ";
+			else if(tok.rfind("mGl-", 0) == 0 || tok.rfind("mGo-", 0) == 0)
 				mgo = SplitString(tok, "-")[1];
 			else if(tok.rfind("mN2-", 0) == 0)
 				mn2 = SplitString(tok, "-")[1];
@@ -152,6 +155,15 @@ inline std::vector<std::string> BFTool::SplitString(const std::string& str,const
 				mn1 = SplitString(tok, "-")[1];
 			else if(tok.rfind("ct", 0) == 0)
 				ctau = NormalizeCtauToken(tok);
+			// N2ctau-300cm: value already in cm
+			else if(tok.rfind("N2ctau-", 0) == 0){
+				std::string val = tok.substr(7);
+				if(val.size() > 2 && val.compare(val.size()-2, 2, "cm") == 0)
+					val = val.substr(0, val.size()-2);
+				if(val.empty() || !std::all_of(val.begin(), val.end(), [](unsigned char c){ return std::isdigit(c); }))
+					throw std::invalid_argument("Could not parse ctau token: " + tok);
+				ctau = val;
+			}
 		}
 
 		if(mode == "x" || mgo == "0" || mn2 == "0" || mn1 == "0")

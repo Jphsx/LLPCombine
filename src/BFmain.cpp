@@ -109,12 +109,9 @@ int main(int argc, char* argv[]){
 			BF.PrepFit(j, current_signal);
 			//do fit - function won't do anything if their corresponding section in the config yaml isn't filled
 			BF.BuildShapeTransferFit();
+			//includes any ABCD_fit.template_processes from the fit config
 			BF.BuildABCDFit();
-			//highDm channel names
-			BF.AddTemplateProcessABCD("Ch17CRgeq1PhoTightIsoEarly","Ch7CRgeq1PhoNotBHEarly");
-			//compresssed channel names
-			BF.AddTemplateProcessABCD("DelPho_TightIsoEarlyCR","DelPho_NotBHEarlyCR");
-			BF.SetObservations(); 
+			BF.SetObservations();
 			BF.DoSystematics();
 			//write datacard
 			BF.WriteDatacard(datacard_dir, true);

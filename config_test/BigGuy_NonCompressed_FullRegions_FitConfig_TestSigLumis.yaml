@@ -135,6 +135,13 @@ ABCD_fit:
       #  - "Ch16CRgeq1PhoMedIsoLate"
       #  - "Ch17CRgeq1PhoTightIsoEarly"
       #  - "Ch15CRgeq1PhoMedIsoEarly"
+  # Prompt bkg leaking into the notBH early CR, templated bin-by-bin from the tight-iso early CR.
+  # transfer_factor: auto = min over bins of yield(target)/yield(source), or give a number.
+  template_processes:
+    - source_channel: "Ch17CRgeq1PhoTightIsoEarly"
+      target_channel: "Ch7CRgeq1PhoNotBHEarlyBin"
+      process: "bkgprompt"
+      transfer_factor: auto
   #can add channel associations for stacked ABCD fits
 #extra systematics
 systematics:
@@ -151,7 +158,6 @@ systematics:
   sys1:
       type: "lnN"
       name: "lnN_Ch1Ch2geLep1Shape00"
-      split: "Run2"
       init_val: 1.05
       bins:
         - "Ch1CRGeLep100"
