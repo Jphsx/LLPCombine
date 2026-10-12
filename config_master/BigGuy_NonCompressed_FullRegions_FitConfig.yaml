@@ -1,5 +1,5 @@
 #test fit config
-fitname: "BigGuy_NonCompressed_FullRegions"
+fitname: "BigGuy_NonCompressed_FullRegions_TESTCHANGES"
 asimov: True
 datadriven: True
 
