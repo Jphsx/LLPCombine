@@ -125,6 +125,13 @@ ABCD_fit:
         - "Ch16CRgeq1PhoMedIsoLate"
         - "Ch17CRgeq1PhoTightIsoEarly"
         - "Ch15CRgeq1PhoMedIsoEarly"
+  # Prompt bkg leaking into the notBH early CR, templated bin-by-bin from the tight-iso early CR.
+  # transfer_factor: auto = min over bins of yield(target)/yield(source), or give a number.
+  template_processes:
+    - source_channel: "Ch17CRgeq1PhoTightIsoEarly"
+      target_channel: "Ch7CRgeq1PhoNotBHEarly"
+      process: "bkgprompt"
+      transfer_factor: auto
   #can add channel associations for stacked ABCD fits
 #extra systematics
 systematics:
@@ -284,8 +291,8 @@ systematics:
       name: "lnN_Ch11Ch12eq2Shape00"
       init_val: 1.1 
       bins:
-          - "Ch12CReq2PhoMedIsoPrompt00"
-          - "Ch11CReq2PhoTightIsoPrompt00"
+          - "Ch11CReq2PhoMedIsoPrompt00"
+          - "Ch12CReq2PhoTightIsoPrompt00"
   sys23:
       type: "lnN"
       name: "lnN_Ch11Ch12eq2Shape01"
@@ -312,7 +319,7 @@ systematics:
       name: "lnN_Ch12eq2Shape00"
       init_val: 1.1 
       bins:
-          - "Ch12CReq2PhoMedIsoPrompt00"
+          - "Ch11CReq2PhoMedIsoPrompt00"
   sys27:
       type: "lnN"
       name: "lnN_SignalSyst"

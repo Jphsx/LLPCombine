@@ -84,10 +84,6 @@ class BuildFitInput{
 	errormap ComputeStatError( countmap countResults, map< std::string, double >& evtwt ); //older method with const same evt weights
 	errormap ComputeStatError( summap sumResults);//proper way with sum of wts squared
 
-        std::map<std::string, std::vector<std::string>> _runyr_map = {
-                {"Run3",{"22","23","24","25"}},
-                {"Run2",{"18","17","16"}}
-        };
 	bool _unblind = false;
 	void SetUnblind(bool u){
 		_unblind = u;
@@ -124,10 +120,7 @@ class BuildFitInput{
 		BinSplitInfo(BinSplitMode m, const std::string& s) : mode(m), suffix(s) {}
 	};
 
-	bool IsKnownYearToken(const std::string& token) const;
 	BinSplitInfo ResolveBinSplit(const std::string& binname) const;
-	std::string DataYearToken(const std::string& procname) const;
-	std::string SignalYearToken(const std::string& procname) const;
 	std::string StripSignalYearToken(const std::string& procname, const std::string& proc_year) const;
 	bool ShouldAddProcessToBin(const BinSplitInfo& split, const std::string& proc_year) const;
 	void AddOrMergeProcess(std::map<std::string, Process*>& processes, Process* proc) const;
